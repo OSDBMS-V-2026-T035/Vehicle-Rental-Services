@@ -1,0 +1,69 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Secure RideHub login and account creation for customers, shopkeepers, and administrators.">
+    <title>Account Access | RideHub</title>
+    <link rel="stylesheet" href="{% static 'css/auth.css' %}">
+</head>
+<body>
+    <div class="auth-page" data-role="USER" data-mode="login">
+        <div class="auth-backdrop"></div>
+        <header class="auth-header">
+            <a class="auth-brand" href="/" aria-label="Back to RideHub home"><span class="logo-mark">R</span><span><strong>RideHub</strong><small>Move Freely. Live More.</small></span></a>
+            <a class="back-home" href="/">← Back to Home</a>
+        </header>
+
+        <main class="auth-layout">
+            <section class="auth-intro">
+                <p class="eyebrow">ONE PLATFORM. EVERY RIDE.</p>
+                <h1>Access your<br><span>journey.</span></h1>
+                <p class="intro-copy">Discover. Book. Rent. Explore.<br>Trusted local vehicle rentals, all in one place.</p>
+                <div class="trust-row"><span>✓ Verified accounts</span><span>⌁ Secure access</span><span>▣ Local sellers</span></div>
+                <div class="role-heading"><p class="eyebrow">CHOOSE YOUR ROLE</p><p>Get started with the account that fits you best.</p></div>
+                <div class="role-cards" role="tablist" aria-label="Choose account role">
+                    <button class="role-card active" type="button" data-role-button="USER" role="tab"><span class="role-icon user">♟</span><span><strong>I'm a User</strong><small>Find and rent vehicles near you</small></span><b>→</b></button>
+                    <button class="role-card" type="button" data-role-button="SHOPKEEPER" role="tab"><span class="role-icon shop">▤</span><span><strong>I'm a Shopkeeper</strong><small>List and manage your vehicles</small></span><b>→</b></button>
+                    <button class="role-card" type="button" data-role-button="ADMIN" role="tab"><span class="role-icon admin">◆</span><span><strong>I'm an Admin</strong><small>Manage users, shops and platform activity</small></span><b>→</b></button>
+                </div>
+                <p class="quote">“Better rides. Brighter journeys.”</p>
+            </section>
+
+            <section class="auth-panel" aria-live="polite">
+                <div class="panel-topline"><span class="role-badge">USER ACCESS</span><span class="secure-label">⌁ Encrypted session</span></div>
+                <div class="panel-heading"><div class="panel-icon">♟</div><div><h2 id="panel-title">User Login</h2><p id="panel-subtitle">Welcome back! Continue your journey with RideHub.</p></div></div>
+                <div class="auth-tabs" role="tablist" aria-label="Account access mode"><button class="auth-tab active" data-mode-button="login" type="button">Log In</button><button class="auth-tab" data-mode-button="signup" type="button">Create Account</button></div>
+                <div class="notice" id="server-message" role="status"></div>
+
+                <form id="login-form" class="auth-form" novalidate>
+                    <label class="input-group"><span>Email or Phone Number</span><span class="input-control"><i>✉</i><input id="login-identifier" name="identifier" autocomplete="username" placeholder="you@example.com or 9876543210" required></span><small class="field-error" data-error-for="login-identifier"></small></label>
+                    <label class="input-group"><span>Password</span><span class="input-control"><i>♙</i><input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required><button class="show-password" type="button" data-toggle-password="login-password" aria-label="Show password">◉</button></span><small class="field-error" data-error-for="login-password"></small></label>
+                    <div class="form-options"><label class="check-line"><input type="checkbox" name="remember"><span>Remember me</span></label><button class="text-button" type="button" data-toast="Password recovery will be connected to the verified email and phone flow.">Forgot password?</button></div>
+                    <button class="submit-button" type="submit"><span>Log In</span><b>→</b></button>
+                    <p class="switch-copy">Don't have an account? <button type="button" class="text-button" data-mode-button="signup">Sign Up</button></p>
+                </form>
+
+                <form id="signup-form" class="auth-form hidden" novalidate>
+                    <div class="signup-progress"><span class="progress-step active">1 <small>Your details</small></span><i></i><span class="progress-step">2 <small>Verify contact</small></span><i></i><span class="progress-step">3 <small>Ready to ride</small></span></div>
+                    <label class="input-group"><span>Full Name</span><span class="input-control"><i>♟</i><input id="full-name" name="full_name" autocomplete="name" placeholder="Your full name" required></span><small class="field-error" data-error-for="full-name"></small></label>
+                    <div class="two-columns"><label class="input-group"><span>Email Address</span><span class="input-control"><i>✉</i><input id="signup-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required></span><small class="field-error" data-error-for="signup-email"></small></label><label class="input-group"><span>Phone Number</span><span class="input-control"><i>⌕</i><input id="signup-phone" name="phone" inputmode="numeric" maxlength="10" autocomplete="tel" placeholder="9876543210" required></span><small class="field-error" data-error-for="signup-phone"></small></label></div>
+                    <div class="otp-row"><label class="input-group"><span>Email OTP</span><span class="input-control"><i>⌁</i><input id="email-otp" name="email_otp" inputmode="numeric" maxlength="6" placeholder="6-digit code" required></span><small class="field-error" data-error-for="email-otp"></small></label><button class="otp-button" type="button" data-otp-channel="EMAIL">Send email code</button></div>
+                    <div class="otp-row"><label class="input-group"><span>Mobile OTP</span><span class="input-control"><i>⌁</i><input id="phone-otp" name="phone_otp" inputmode="numeric" maxlength="6" placeholder="6-digit code" required></span><small class="field-error" data-error-for="phone-otp"></small></label><button class="otp-button" type="button" data-otp-channel="SMS">Send mobile code</button></div>
+                    <div class="shopkeeper-fields hidden"><label class="input-group"><span>Shop Name</span><span class="input-control"><i>▤</i><input id="shop-name" name="shop_name" placeholder="Your rental shop name"></span><small class="field-error" data-error-for="shop-name"></small></label><label class="input-group"><span>Shop Address</span><span class="input-control"><i>⌖</i><input id="shop-address" name="shop_address" placeholder="Full shop address"><button class="show-password" type="button" id="location-button" aria-label="Use current location">⌖</button></span><small class="field-error" data-error-for="shop-address"></small></label></div>
+                    <label class="input-group"><span>Create Password</span><span class="input-control"><i>♙</i><input id="signup-password" name="password" type="password" autocomplete="new-password" placeholder="Build a strong password" required><button class="show-password" type="button" data-toggle-password="signup-password" aria-label="Show password">◉</button></span><small class="field-error" data-error-for="signup-password"></small></label>
+                    <div class="password-meter"><span></span><span></span><span></span><span></span></div><ul class="password-rules" id="password-rules"><li data-rule="length">10+ characters</li><li data-rule="upper">Uppercase letter</li><li data-rule="lower">Lowercase letter</li><li data-rule="number">Number</li><li data-rule="special">Special character</li><li data-rule="space">No spaces</li></ul>
+                    <label class="input-group"><span>Confirm Password</span><span class="input-control"><i>♙</i><input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password" placeholder="Repeat your password" required><button class="show-password" type="button" data-toggle-password="confirm-password" aria-label="Show password">◉</button></span><small class="field-error" data-error-for="confirm-password"></small></label>
+                    <label class="check-line terms-line"><input id="terms" name="terms" type="checkbox" required><span>I agree to the <a href="#" data-toast="Terms will be published before launch.">Terms &amp; Conditions</a> and <a href="#" data-toast="Privacy policy will be published before launch.">Privacy Policy</a></span></label><small class="field-error" data-error-for="terms"></small>
+                    <button class="submit-button" type="submit"><span>Create Account</span><b>→</b></button>
+                    <p class="switch-copy">Already have an account? <button type="button" class="text-button" data-mode-button="login">Log In</button></p>
+                </form>
+                <p class="development-note">Development mode: OTPs are logged by Django and shown here locally until a provider key is configured.</p>
+            </section>
+        </main>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="{% static 'js/auth.js' %}"></script>
+</body>
+</html>

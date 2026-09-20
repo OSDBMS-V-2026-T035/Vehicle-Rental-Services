@@ -1,0 +1,166 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="RideHub makes it easy to discover and rent cars, bikes, scooters, cycles, and commercial vehicles.">
+    <title>RideHub | Move Freely. Live More.</title>
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+</head>
+<body>
+    <div class="page-shell">
+        <header class="site-header" id="top">
+            <a class="brand" href="#top" aria-label="RideHub home">
+                <span class="brand-mark" aria-hidden="true">R</span>
+                <span>
+                    <strong>RideHub</strong>
+                    <small>Move Freely. Live More.</small>
+                </span>
+            </a>
+
+            <button class="menu-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false">
+                <span></span><span></span><span></span>
+            </button>
+
+            <nav class="main-nav" aria-label="Main navigation">
+                <a class="active" href="#top">Home</a>
+                <a href="#categories">Vehicles <span class="chevron">⌄</span></a>
+                <a href="#shops">Shops <span class="chevron">⌄</span></a>
+                <a href="#how-it-works">How It Works <span class="chevron">⌄</span></a>
+                <a href="#about">About</a>
+            </nav>
+
+            <div class="header-actions">
+                <button class="location-button" type="button" data-toast="Location selection will connect to your service area soon.">
+                    <span class="pin-icon">⌖</span> Dehradun <span class="chevron">⌄</span>
+                </button>
+                <a class="button button-ghost" href="/auth/?mode=login&role=USER">Login</a>
+                <a class="button button-primary button-small" href="/auth/?mode=signup&role=USER">Sign Up</a>
+            </div>
+        </header>
+
+        <main>
+            <section class="hero" aria-labelledby="hero-title">
+                <div class="hero-overlay"></div>
+                <div class="hero-content container">
+                    <p class="eyebrow">RENT <span>•</span> EXPLORE <span>•</span> REPEAT</p>
+                    <h1 id="hero-title">Find Your<br><span>Perfect Ride</span></h1>
+                    <p class="hero-copy">Discover, compare and book vehicles from trusted local sellers — all in one place.</p>
+                    <div class="hero-benefits" aria-label="RideHub benefits">
+                        <span><i>▰</i> Wide Selection</span>
+                        <span><i>⌁</i> Best Prices</span>
+                        <span><i>✓</i> Verified Sellers</span>
+                        <span><i>▣</i> Secure Booking</span>
+                    </div>
+                </div>
+
+                <div class="hero-note" aria-hidden="true">
+                    <span>Explore</span><br>Dehradun<br>and Beyond <b>↘</b>
+                </div>
+                <div class="hero-pagination" aria-hidden="true"><b>01</b><span>✦</span><span>02</span><span>03</span></div>
+            </section>
+
+            <section class="search-wrap container" aria-label="Search for a rental vehicle">
+                <form class="search-card" id="search-form">
+                    <div class="search-card-top">
+                        <div class="search-tabs" role="tablist" aria-label="Rental type">
+                            <button class="search-tab active" type="button" data-mode="rent"><span>▣</span> Rent a Vehicle</button>
+                            <button class="search-tab" type="button" data-mode="shop"><span>▤</span> Find a Shop</button>
+                        </div>
+                        <div class="trip-toggle" role="group" aria-label="Trip type">
+                            <button class="trip-option" type="button" data-trip="one-way">▱ &nbsp; One Way</button>
+                            <button class="trip-option active" type="button" data-trip="round-trip">Round Trip</button>
+                        </div>
+                    </div>
+                    <div class="search-fields">
+                        <label class="field-group">
+                            <span>Location</span>
+                            <span class="input-shell"><b>⌖</b><select id="location" aria-label="Location"><option>Dehradun, Uttarakhand</option><option>Mussoorie, Uttarakhand</option><option>Rishikesh, Uttarakhand</option></select></span>
+                        </label>
+                        <label class="field-group">
+                            <span>Pickup Date</span>
+                            <span class="input-shell"><b>▣</b><input id="pickup-date" type="date" required></span>
+                        </label>
+                        <label class="field-group return-field">
+                            <span>Return Date</span>
+                            <span class="input-shell"><b>▣</b><input id="return-date" type="date" required></span>
+                        </label>
+                        <label class="field-group">
+                            <span>Vehicle Type</span>
+                            <span class="input-shell"><b>▰</b><select id="vehicle-type" aria-label="Vehicle type"><option value="all">All Vehicles</option><option value="car">Cars</option><option value="bike">Bikes</option><option value="scooter">Scooters</option><option value="cycle">Cycles</option><option value="commercial">Commercial</option></select></span>
+                        </label>
+                        <button class="button button-search" type="submit"><span>⌕</span> Search Vehicles <b>→</b></button>
+                    </div>
+                    <p class="form-message" id="form-message" role="status"></p>
+                </form>
+            </section>
+
+            <section class="section container" id="categories" aria-labelledby="categories-title">
+                <div class="section-heading">
+                    <div><p class="eyebrow">VEHICLE CATEGORIES</p><h2 id="categories-title">Choose Your Ride</h2></div>
+                    <a class="text-link" href="#trending">View All <span>→</span></a>
+                </div>
+                <div class="category-grid">
+                    <button class="category-card category-car" data-category="car" type="button"><span class="category-image"></span><span class="category-copy"><strong>Cars</strong><small>Hatchback, Sedan, SUV</small></span><span class="round-arrow">→</span></button>
+                    <button class="category-card category-bike" data-category="bike" type="button"><span class="category-image"></span><span class="category-copy"><strong>Bikes</strong><small>Sports, Cruisers, Motorcycles</small></span><span class="round-arrow">→</span></button>
+                    <button class="category-card category-scooter" data-category="scooter" type="button"><span class="category-image"></span><span class="category-copy"><strong>Scooters</strong><small>Light &amp; Comfortable</small></span><span class="round-arrow">→</span></button>
+                    <button class="category-card category-cycle" data-category="cycle" type="button"><span class="category-image"></span><span class="category-copy"><strong>Cycles</strong><small>Eco-friendly Rides</small></span><span class="round-arrow">→</span></button>
+                    <button class="category-card category-commercial" data-category="commercial" type="button"><span class="category-image"></span><span class="category-copy"><strong>Commercial</strong><small>Tempo, Vans, Trucks</small></span><span class="round-arrow">→</span></button>
+                </div>
+            </section>
+
+            <section class="stats-bar container" aria-label="RideHub statistics">
+                <div class="stat"><span class="stat-icon blue">♟</span><span><strong>500+</strong><small>Happy Customers</small></span></div>
+                <div class="stat"><span class="stat-icon blue">▤</span><span><strong>50+</strong><small>Verified Sellers</small></span></div>
+                <div class="stat"><span class="stat-icon purple">✦</span><span><strong>1000+</strong><small>Successful Bookings</small></span></div>
+                <div class="stat"><span class="stat-icon gold">★</span><span><strong>4.8</strong><small>Average Rating</small></span></div>
+            </section>
+
+            <section class="section container how-section" id="how-it-works" aria-labelledby="how-title">
+                <div class="how-content">
+                    <p class="eyebrow">SIMPLE STEPS</p>
+                    <h2 id="how-title">How <span>RideHub</span> Works</h2>
+                    <p class="section-copy">Get on the road in just a few simple steps.</p>
+                    <div class="steps">
+                        <div class="step"><span class="step-icon">⌕</span><b>1</b><strong>Search</strong><small>Find vehicles near you</small></div>
+                        <i class="step-line"></i>
+                        <div class="step"><span class="step-icon">☷</span><b>2</b><strong>Compare</strong><small>Check prices &amp; availability</small></div>
+                        <i class="step-line"></i>
+                        <div class="step"><span class="step-icon">▣</span><b>3</b><strong>Book</strong><small>Confirm your ride</small></div>
+                        <i class="step-line"></i>
+                        <div class="step"><span class="step-icon">▰</span><b>4</b><strong>Ride</strong><small>Pick up and enjoy!</small></div>
+                    </div>
+                </div>
+                <aside class="app-promo" id="about">
+                    <div><p class="eyebrow">YOUR JOURNEY STARTS HERE</p><h3>Travel More<br>Worry Less</h3><p>One simple place for every ride.</p><div class="store-buttons"><button type="button" data-toast="Mobile app download links are coming soon.">▶ <span>GET IT ON<strong>Google Play</strong></span></button><button type="button" data-toast="Mobile app download links are coming soon.">● <span>Download on the<strong>App Store</strong></span></button></div></div>
+                    <div class="phone-mockup"><span>R</span><small>RideHub</small></div>
+                </aside>
+            </section>
+
+            <section class="section container" id="trending" aria-labelledby="trending-title">
+                <div class="section-heading"><div><p class="eyebrow">POPULAR VEHICLES</p><h2 id="trending-title">Trending Near You</h2></div><a class="text-link" href="#categories">View All Vehicles <span>→</span></a></div>
+                <div class="vehicle-grid">
+                    <article class="vehicle-card" data-type="car"><div class="vehicle-image vehicle-creta"><button class="favorite" type="button" aria-label="Save Hyundai Creta">♡</button></div><div class="vehicle-info"><div class="vehicle-title"><h3>Hyundai Creta</h3><span>★ 4.8</span></div><p>⌖ Dehradun</p><strong>₹2,499<small>/day</small></strong></div></article>
+                    <article class="vehicle-card" data-type="bike"><div class="vehicle-image vehicle-classic"><button class="favorite" type="button" aria-label="Save Royal Enfield Classic">♡</button></div><div class="vehicle-info"><div class="vehicle-title"><h3>Royal Enfield Classic 350</h3><span>★ 4.7</span></div><p>⌖ Dehradun</p><strong>₹799<small>/day</small></strong></div></article>
+                    <article class="vehicle-card" data-type="scooter"><div class="vehicle-image vehicle-activa"><button class="favorite" type="button" aria-label="Save Activa 6G">♡</button></div><div class="vehicle-info"><div class="vehicle-title"><h3>Activa 6G</h3><span>★ 4.8</span></div><p>⌖ Dehradun</p><strong>₹449<small>/day</small></strong></div></article>
+                    <article class="vehicle-card" data-type="commercial"><div class="vehicle-image vehicle-tempo"><button class="favorite" type="button" aria-label="Save Tempo Traveller">♡</button></div><div class="vehicle-info"><div class="vehicle-title"><h3>Tempo Traveller</h3><span>★ 4.5</span></div><p>⌖ Dehradun</p><strong>₹4,499<small>/day</small></strong></div></article>
+                    <article class="vehicle-card explore-card"><div class="explore-content"><p class="eyebrow">SCENIC GETAWAYS</p><h3>Explore<br>Dehradun</h3><p>Mountains, temples, rivers and more — all within reach.</p><button class="button button-primary" type="button" data-toast="Explore listings will be connected to the vehicles app.">Explore Now <b>→</b></button></div></article>
+                </div>
+                <p class="empty-state" id="empty-state">No vehicles found for this category yet.</p>
+            </section>
+
+            <section class="final-cta" id="shops">
+                <div class="container final-cta-inner"><div><h2>Ready for Your Next Adventure?</h2><p>Join thousands of happy travelers. Find. Book. Ride.</p></div><button class="button button-primary" type="button" data-toast="Welcome to RideHub — more booking features are coming soon.">Get Started <b>→</b></button></div>
+            </section>
+        </main>
+
+        <footer class="site-footer">
+            <div class="container footer-top"><a class="brand" href="#top"><span class="brand-mark">R</span><span><strong>RideHub</strong><small>Move Freely. Live More.</small></span></a><div class="footer-links"><a href="#about">About</a><a href="#shops">Contact</a><a href="#top">Terms</a><a href="#top">Privacy</a><a href="#top">FAQs</a></div><div class="social-links"><a href="#top" aria-label="Instagram">◎</a><a href="#top" aria-label="Twitter">♥</a><a href="#top" aria-label="LinkedIn">in</a><a href="#top" aria-label="YouTube">▶</a></div></div>
+            <div class="container footer-bottom"><span>© 2026 RideHub. All rights reserved.</span><span>A Vehicle Rental Services project</span><a href="#top">Explore More&nbsp; →</a></div>
+        </footer>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="{% static 'js/app.js' %}"></script>
+</body>
+</html>
