@@ -8,7 +8,7 @@
     <title>RideHub | Move Freely. Live More.</title>
     <link rel="stylesheet" href="{% static 'css/styles.css' %}">
 </head>
-<body>
+<body data-google-maps-key="{{ GOOGLE_MAPS_API_KEY|default:'' }}">
     <div class="page-shell">
         <header class="site-header" id="top">
             <a class="brand" href="#top" aria-label="RideHub home">
@@ -32,7 +32,7 @@
             </nav>
 
             <div class="header-actions">
-                <button class="location-button" type="button" data-toast="Location selection will connect to your service area soon.">
+                <button class="location-button" type="button" data-use-current-location data-location-target="location" title="Use your current location">
                     <span class="pin-icon">⌖</span> Dehradun <span class="chevron">⌄</span>
                 </button>
                 <a class="button button-ghost" href="/auth/?mode=login&role=USER">Login</a>
@@ -62,7 +62,7 @@
             </section>
 
             <section class="search-wrap container" aria-label="Search for a rental vehicle">
-                <form class="search-card" id="search-form">
+                <form class="search-card" id="search-form" novalidate>
                     <div class="search-card-top">
                         <div class="search-tabs" role="tablist" aria-label="Rental type">
                             <button class="search-tab active" type="button" data-mode="rent"><span>▣</span> Rent a Vehicle</button>
@@ -76,7 +76,10 @@
                     <div class="search-fields">
                         <label class="field-group">
                             <span>Location</span>
-                            <span class="input-shell"><b>⌖</b><select id="location" aria-label="Location"><option>Dehradun, Uttarakhand</option><option>Mussoorie, Uttarakhand</option><option>Rishikesh, Uttarakhand</option></select></span>
+                            <span class="input-shell location-shell"><b>⌖</b><input id="location" data-place-autocomplete="true" autocomplete="street-address" value="Dehradun, Uttarakhand" aria-label="Location" placeholder="Search a city or area"><button class="field-action" type="button" data-use-current-location data-location-target="location" aria-label="Use current location" title="Use current location">◎</button></span>
+                            <input type="hidden" id="location-latitude" name="latitude">
+                            <input type="hidden" id="location-longitude" name="longitude">
+                            <input type="hidden" id="location-place-id" name="place_id">
                         </label>
                         <label class="field-group">
                             <span>Pickup Date</span>
@@ -94,6 +97,10 @@
                     </div>
                     <p class="form-message" id="form-message" role="status"></p>
                 </form>
+                <section class="live-results" id="live-results" aria-live="polite" hidden>
+                    <div class="live-results-heading"><div><p class="eyebrow">LIVE DISCOVERY</p><h3 id="live-results-title">Nearby vehicles</h3></div><span id="live-results-count"></span></div>
+                    <div class="live-results-grid" id="live-results-grid"></div>
+                </section>
             </section>
 
             <section class="section container" id="categories" aria-labelledby="categories-title">
@@ -161,6 +168,7 @@
         </footer>
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="{% static 'js/app.js' %}"></script>
+    <script src="{% static 'js/maps.js' %}"></script>
+    <script src="{% static 'js/app.js' %}?v=20260924-date-fix"></script>
 </body>
 </html>

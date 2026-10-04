@@ -1,0 +1,58 @@
+name: ridehub
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-vehicle_rental}
+      MYSQL_USER: ${MYSQL_USER:-vehicle_rental_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in the server .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in the server .env}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks: [ridehub_internal]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DJANGO_DEBUG: "False"
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      PORT: 8000
+      INSTALL_MYSQL_EXTENSIONS: "true"
+    expose: ["8000"]
+    volumes:
+      - media_data:/app/backend/media
+      - static_data:/app/backend/staticfiles
+    networks: [ridehub_internal]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - media_data:/media:ro
+      - static_data:/static:ro
+    networks: [ridehub_internal]
+    depends_on: [web]
+
+volumes:
+  mysql_data:
+  media_data:
+  static_data:
+
+networks:
+  ridehub_internal:

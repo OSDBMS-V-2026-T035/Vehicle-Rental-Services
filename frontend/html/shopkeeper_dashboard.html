@@ -1,0 +1,58 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shopkeeper Workspace | RideHub</title>
+    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+</head>
+<body class="dashboard-page" data-google-maps-key="{{ GOOGLE_MAPS_API_KEY|default:'' }}">
+    <form class="csrf-holder">{% csrf_token %}</form>
+    <header class="dashboard-header">
+        <a class="dashboard-brand" href="/">RideHub <small>Shopkeeper workspace</small></a>
+        <div class="dashboard-actions"><span class="user-chip">{{ request.user.get_full_name|default:request.user.email }}</span><a href="/">Back to home</a><button type="button" data-logout>Log out</button></div>
+    </header>
+    <main class="dashboard-shell">
+        <section class="dashboard-hero">
+            <div><p class="eyebrow">SELLER CONSOLE</p><h1>Manage your rental shop.</h1><p>Keep your profile accurate, submit vehicles, and track admin review status.</p></div>
+            <span class="status-badge status-{{ profile.verification_status|lower }}">{{ profile.get_verification_status_display }}</span>
+        </section>
+        <div id="dashboard-message" class="dashboard-message" role="status"></div>
+        {% if profile.verification_status == 'PENDING' %}<div class="notice-card warning"><strong>Temporary access:</strong> your shopkeeper registration is waiting for admin verification. You can update your shop details, but vehicle listings stay locked until approval.</div>{% endif %}
+        {% if profile.verification_status == 'REJECTED' %}<div class="notice-card warning"><strong>Changes required:</strong> update your shop details and save them to send the profile for another admin review.</div>{% endif %}
+        {% if profile.verification_status == 'REVOKED' %}<div class="notice-card danger"><strong>Access revoked:</strong> contact the administrator for assistance.</div>{% endif %}
+
+        <div class="dashboard-grid">
+            <section class="panel-card">
+                <div class="panel-heading"><div><p class="eyebrow">SHOP PROFILE</p><h2>Your public details</h2></div><span class="panel-lock">Google Maps supported</span></div>
+                <form id="shop-profile-form" class="stack-form">
+                    <label>Shop name<input name="shop_name" value="{{ profile.shop_name }}" required></label>
+                    <label>Shop address<div class="input-with-action"><input id="shop-address" name="shop_address" data-place-autocomplete="true" value="{{ profile.shop_address }}" required><button type="button" data-use-current-location data-location-target="shop-address">Use location</button></div></label>
+                    <input type="hidden" id="shop-latitude" name="latitude" value="{{ profile.latitude|default:'' }}"><input type="hidden" id="shop-longitude" name="longitude" value="{{ profile.longitude|default:'' }}"><input type="hidden" id="shop-place-id" name="place_id" value="{{ profile.google_place_id }}">
+                    <button class="primary-action" type="submit" {% if profile.verification_status == 'REVOKED' %}disabled{% endif %}>Save shop profile</button>
+                </form>
+            </section>
+            <section class="panel-card summary-card"><p class="eyebrow">LISTING RULE</p><h2>{% if profile.verification_status == 'VERIFIED' %}You can list vehicles{% else %}Vehicle listing is locked{% endif %}</h2><p>{% if profile.verification_status == 'VERIFIED' %}Every vehicle goes through an admin review before appearing to customers.{% else %}Admin approval authenticates your shop before any vehicle can be published.{% endif %}</p><div class="summary-stat"><strong>{{ vehicles|length }}</strong><span>Total submitted vehicles</span></div></section>
+        </div>
+
+        <section class="panel-card vehicle-panel">
+            <div class="panel-heading"><div><p class="eyebrow">FLEET MANAGEMENT</p><h2>Register a vehicle</h2></div><span class="panel-lock">Admin approval required</span></div>
+            <form id="vehicle-form" class="vehicle-form" enctype="multipart/form-data">
+                <label>Vehicle type<select name="vehicle_type" required><option value="car">Four-wheeler / Car</option><option value="bike">Bike</option><option value="scooter">Scooter</option><option value="cycle">Cycle</option><option value="commercial">Commercial</option></select></label>
+                <label>Brand<input name="brand" placeholder="Maruti / TVS" required></label>
+                <label>Model name<input name="model_name" placeholder="Swift / Jupiter" required></label>
+                <label>Registration number<input name="registration_number" placeholder="UK07AB1234" required></label>
+                <label>Manufacturing year<input name="manufacturing_year" type="number" min="1900" max="2100" required></label>
+                <label>Daily rate (₹)<input name="daily_rate" type="number" min="0" step="0.01" required></label>
+                <label>Seats<input name="seating_capacity" type="number" min="1" max="100" value="2" required></label>
+                <label>Sample photo<input name="image" type="file" accept="image/*"></label>
+                <label class="wide-field">Description<textarea name="description" rows="3" placeholder="Condition, features, documents available..."></textarea></label>
+                <button class="primary-action wide-field" type="submit" {% if profile.verification_status != 'VERIFIED' %}disabled{% endif %}>Submit vehicle for review</button>
+            </form>
+            <div class="table-wrap"><table><thead><tr><th>Vehicle</th><th>Registration</th><th>Rate</th><th>Status</th><th>Submitted</th></tr></thead><tbody>{% for vehicle in vehicles %}<tr><td><strong>{{ vehicle.display_name }}</strong><small>{{ vehicle.get_vehicle_type_display }}</small></td><td>{{ vehicle.registration_number }}</td><td>₹{{ vehicle.daily_rate }}/day</td><td><span class="status-badge status-{{ vehicle.listing_status|lower }}">{{ vehicle.get_listing_status_display }}</span></td><td>{{ vehicle.created_at|date:'d M Y' }}</td></tr>{% empty %}<tr><td colspan="5" class="empty-row">No vehicles submitted yet.</td></tr>{% endfor %}</tbody></table></div>
+        </section>
+    </main>
+    <script src="{% static 'js/maps.js' %}"></script><script src="{% static 'js/dashboard.js' %}?v=20260925"></script>
+</body>
+</html>

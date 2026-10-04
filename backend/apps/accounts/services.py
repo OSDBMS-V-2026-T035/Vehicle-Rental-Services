@@ -1,12 +1,11 @@
 """OTP delivery adapters using Django and the Python standard library only."""
 
-import base64
 import json
 import logging
 import secrets
 from datetime import timedelta
 from email.utils import parseaddr
-from urllib import parse, request as urlrequest
+from urllib import request as urlrequest
 
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
@@ -58,24 +57,6 @@ def _send_brevo_email(recipient, code):
         return True
 
 
-def _send_twilio_sms(phone_number):
-    account_sid = getattr(settings, "TWILIO_ACCOUNT_SID", "")
-    auth_token = getattr(settings, "TWILIO_AUTH_TOKEN", "")
-    service_sid = getattr(settings, "TWILIO_VERIFY_SERVICE_SID", "")
-    if not all((account_sid, auth_token, service_sid)):
-        return False
-    payload = parse.urlencode({"To": f"+91{phone_number}", "Channel": "sms"}).encode("utf-8")
-    credentials = base64.b64encode(f"{account_sid}:{auth_token}".encode("utf-8")).decode("ascii")
-    req = urlrequest.Request(
-        f"https://verify.twilio.com/v2/Services/{service_sid}/Verifications",
-        data=payload,
-        headers={"Authorization": f"Basic {credentials}"},
-        method="POST",
-    )
-    with urlrequest.urlopen(req, timeout=10):
-        return True
-
-
 def send_otp(contact, channel, purpose, request):
     """Create an OTP, rate-limit sends, and deliver through an optional provider."""
     now = timezone.now()
@@ -115,8 +96,6 @@ def send_otp(contact, channel, purpose, request):
                     fail_silently=False,
                 )
                 provider = "smtp"
-        elif channel == OTPChallenge.Channel.SMS and _send_twilio_sms(contact):
-            provider = "twilio"
     except Exception:
         logger.exception("OTP provider failed; keeping the challenge for local development.")
         provider = "console"

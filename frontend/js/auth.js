@@ -90,33 +90,28 @@ function validPassword(value) { return Object.values(passwordRules(value)).every
 
 async function sendOtp(button) {
     const channel = button.dataset.otpChannel;
-    const contactInput = document.querySelector(channel === 'EMAIL' ? '#signup-email' : '#signup-phone');
-    const contact = contactInput.value.trim();
+    const contact = document.querySelector('#signup-email').value.trim();
     clearErrors();
-    if (channel === 'EMAIL' && !validEmail(contact)) return setError('signup-email', 'Enter a valid email before requesting the OTP.');
-    if (channel === 'SMS' && !validPhone(contact)) return setError('signup-phone', 'Use exactly 10 digits beginning with 6, 7, 8, or 9.');
+    if (!validEmail(contact)) return setError('signup-email', 'Enter a valid email before requesting the OTP.');
     button.disabled = true;
     try {
         const response = await fetch('/api/auth/send-otp/', { method: 'POST', headers: {'Content-Type':'application/json', 'X-CSRFToken': csrfToken()}, body: JSON.stringify({ channel, contact }) });
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || 'OTP could not be sent.');
-        showMessage(data.message, 'success');
-        if (data.debug_code) showToast(`Development OTP: ${data.debug_code}`);
+        const otpInput = document.querySelector('#email-otp');
+        if (data.debug_code) {
+            otpInput.value = data.debug_code;
+            showMessage(`${data.message} Local development OTP: ${data.debug_code}`, 'success');
+            showToast('Email OTP filled for local testing.');
+        } else {
+            showMessage(data.message, 'success');
+        }
         let seconds = 60;
         const original = button.textContent;
         const timer = setInterval(() => { seconds -= 1; button.textContent = `${seconds}s`; if (seconds <= 0) { clearInterval(timer); button.disabled = false; button.textContent = original; } }, 1000);
     } catch (error) { showMessage(error.message, 'error'); button.disabled = false; }
 }
 document.querySelectorAll('[data-otp-channel]').forEach((button) => button.addEventListener('click', () => sendOtp(button)));
-
-document.querySelector('#location-button').addEventListener('click', () => {
-    if (!navigator.geolocation) return showToast('Geolocation is not available in this browser.');
-    navigator.geolocation.getCurrentPosition((position) => {
-        const { latitude, longitude } = position.coords;
-        document.querySelector('#shop-address').value = `Current location: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
-        showToast('Current location added. You can refine the shop address before signup.');
-    }, () => showToast('Location permission was not granted. Enter the shop address manually.'));
-});
 
 document.querySelector('#login-form').addEventListener('submit', async (event) => {
     event.preventDefault(); clearErrors();
@@ -142,11 +137,10 @@ document.querySelector('#signup-form').addEventListener('submit', async (event) 
     if (!validPassword(password)) { setError('signup-password', 'Meet all password rules shown below.'); valid = false; }
     if (password !== confirmPassword) { setError('confirm-password', 'Passwords do not match.'); valid = false; }
     if (!document.querySelector('#email-otp').value.trim()) { setError('email-otp', 'Verify your email first.'); valid = false; }
-    if (!document.querySelector('#phone-otp').value.trim()) { setError('phone-otp', 'Verify your mobile first.'); valid = false; }
     if (page.dataset.role === 'SHOPKEEPER') { if (document.querySelector('#shop-name').value.trim().length < 2) { setError('shop-name', 'Shop name is required.'); valid = false; } if (document.querySelector('#shop-address').value.trim().length < 8) { setError('shop-address', 'Enter a complete shop address.'); valid = false; } }
     if (!document.querySelector('#terms').checked) { setError('terms', 'Accept the terms to continue.'); valid = false; }
     if (!valid) return;
-    await submitAuth('/api/auth/signup/', { role: page.dataset.role, full_name: fullName, email, phone, email_otp: document.querySelector('#email-otp').value.trim(), phone_otp: document.querySelector('#phone-otp').value.trim(), password, confirm_password: confirmPassword, terms: true, shop_name: document.querySelector('#shop-name')?.value.trim(), shop_address: document.querySelector('#shop-address')?.value.trim() });
+    await submitAuth('/api/auth/signup/', { role: page.dataset.role, full_name: fullName, email, phone, email_otp: document.querySelector('#email-otp').value.trim(), password, confirm_password: confirmPassword, terms: true, shop_name: document.querySelector('#shop-name')?.value.trim(), shop_address: document.querySelector('#shop-address')?.value.trim(), shop_latitude: document.querySelector('#shop-latitude')?.value.trim(), shop_longitude: document.querySelector('#shop-longitude')?.value.trim(), shop_place_id: document.querySelector('#shop-place-id')?.value.trim() });
 });
 
 async function submitAuth(url, body) {

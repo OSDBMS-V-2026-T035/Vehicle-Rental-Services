@@ -1,5 +1,6 @@
 import json
 import re
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
@@ -49,6 +50,19 @@ def _clean_name(value):
     return name
 
 
+def _clean_coordinate(value, minimum, maximum, field_name):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        coordinate = Decimal(raw)
+    except InvalidOperation as exc:
+        raise ValidationError(f"Enter a valid {field_name}.") from exc
+    if coordinate < minimum or coordinate > maximum:
+        raise ValidationError(f"Enter a valid {field_name}.")
+    return coordinate
+
+
 @ensure_csrf_cookie
 def auth_page(request):
     return render(request, "auth.html")
@@ -58,10 +72,10 @@ def auth_page(request):
 def send_otp_view(request):
     payload = _payload(request)
     channel = str(payload.get("channel", "")).upper()
-    if channel not in {OTPChallenge.Channel.EMAIL, OTPChallenge.Channel.SMS}:
-        return _error("Choose a valid OTP channel.")
+    if channel != OTPChallenge.Channel.EMAIL:
+        return _error("Only email OTP verification is available.")
     try:
-        contact = _clean_email(payload.get("contact")) if channel == OTPChallenge.Channel.EMAIL else _clean_phone(payload.get("contact"))
+        contact = _clean_email(payload.get("contact"))
         _, provider, code = send_otp(contact, channel, OTPChallenge.Purpose.SIGNUP, request)
     except (ValidationError, ValueError) as exc:
         return _error(exc.messages[0] if hasattr(exc, "messages") else str(exc))
@@ -94,6 +108,11 @@ def signup_view(request):
         validate_password(password, candidate)
         shop_name = str(payload.get("shop_name") or "").strip()
         shop_address = str(payload.get("shop_address") or "").strip()
+        shop_latitude = _clean_coordinate(payload.get("shop_latitude"), Decimal("-90"), Decimal("90"), "shop latitude")
+        shop_longitude = _clean_coordinate(payload.get("shop_longitude"), Decimal("-180"), Decimal("180"), "shop longitude")
+        shop_place_id = str(payload.get("shop_place_id") or "").strip()[:255]
+        if (shop_latitude is None) != (shop_longitude is None):
+            return _error("Shop latitude and longitude must be provided together.")
         if role == User.Role.SHOPKEEPER and (len(shop_name) < 2 or len(shop_address) < 8):
             return _error("Shopkeeper signup needs a valid shop name and address.")
         if User.objects.filter(email=email).exists():
@@ -102,8 +121,6 @@ def signup_view(request):
             return _error("An account with this phone number already exists.", field="phone", status=409)
         if not verify_otp(email, OTPChallenge.Channel.EMAIL, OTPChallenge.Purpose.SIGNUP, str(payload.get("email_otp") or "")):
             return _error("Email OTP is missing, incorrect, or expired.", field="email_otp")
-        if not verify_otp(phone, OTPChallenge.Channel.SMS, OTPChallenge.Purpose.SIGNUP, str(payload.get("phone_otp") or "")):
-            return _error("Mobile OTP is missing, incorrect, or expired.", field="phone_otp")
 
         with transaction.atomic():
             user = User.objects.create_user(
@@ -114,17 +131,31 @@ def signup_view(request):
                 last_name=last_name,
                 role=role,
                 is_email_verified=True,
-                is_phone_verified=True,
+                # Phone format is validated above; no mobile OTP provider is used.
+                is_phone_verified=False,
             )
             if role == User.Role.SHOPKEEPER:
-                ShopkeeperProfile.objects.create(user=user, shop_name=shop_name, shop_address=shop_address)
+                ShopkeeperProfile.objects.create(
+                    user=user,
+                    shop_name=shop_name,
+                    shop_address=shop_address,
+                    latitude=shop_latitude,
+                    longitude=shop_longitude,
+                    google_place_id=shop_place_id,
+                )
     except (ValidationError, IntegrityError) as exc:
         if isinstance(exc, IntegrityError):
             return _error("That email or phone number is already registered.", status=409)
         return _error(exc.messages[0])
 
     login(request, user, backend="apps.accounts.backends.EmailOrPhoneBackend")
-    return JsonResponse({"ok": True, "message": "Account created successfully. Welcome to RideHub!", "redirect": "/"})
+    if role == User.Role.SHOPKEEPER:
+        message = "Shopkeeper account created. You have temporary access while the admin reviews your shop."
+        redirect = "/shopkeeper/"
+    else:
+        message = "Account created successfully. Welcome to RideHub!"
+        redirect = "/"
+    return JsonResponse({"ok": True, "message": message, "redirect": redirect})
 
 
 @require_POST
@@ -138,11 +169,30 @@ def login_view(request):
     user = authenticate(request, username=identifier, password=password)
     if not user or user.role != requested_role:
         return _error("The role, login details, or password is incorrect.", status=401)
-    if not user.is_email_verified or not user.is_phone_verified:
-        return _error("Verify both your email and phone before logging in.", status=403)
+    if not user.is_email_verified:
+        return _error("Verify your email before logging in.", status=403)
+    if user.role == User.Role.SHOPKEEPER:
+        profile = getattr(user, "shopkeeper_profile", None)
+        if not profile:
+            return _error("Shopkeeper profile is incomplete. Contact the administrator.", status=403)
+        if profile.verification_status == ShopkeeperProfile.VerificationStatus.REVOKED or not user.is_active:
+            return _error("This shopkeeper account has been revoked.", status=403)
     login(request, user, backend="apps.accounts.backends.EmailOrPhoneBackend")
-    redirect = "/admin/" if user.role == User.Role.ADMIN else "/"
-    return JsonResponse({"ok": True, "message": "Login successful. Welcome back!", "redirect": redirect})
+    if user.role == User.Role.ADMIN:
+        redirect = "/control-panel/"
+        message = "Admin login successful."
+    elif user.role == User.Role.SHOPKEEPER:
+        redirect = "/shopkeeper/"
+        if user.shopkeeper_profile.verification_status == ShopkeeperProfile.VerificationStatus.PENDING:
+            message = "Login successful. Your shopkeeper request is pending admin verification."
+        elif user.shopkeeper_profile.verification_status == ShopkeeperProfile.VerificationStatus.REJECTED:
+            message = "Login successful. Update your shop profile and submit it for review again."
+        else:
+            message = "Login successful. Your shopkeeper workspace is ready."
+    else:
+        redirect = "/"
+        message = "Login successful. Welcome back!"
+    return JsonResponse({"ok": True, "message": message, "redirect": redirect})
 
 
 @require_POST

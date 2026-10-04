@@ -8,7 +8,7 @@
     <title>Account Access | RideHub</title>
     <link rel="stylesheet" href="{% static 'css/auth.css' %}">
 </head>
-<body>
+<body data-google-maps-key="{{ GOOGLE_MAPS_API_KEY|default:'' }}">
     <div class="auth-page" data-role="USER" data-mode="login">
         <div class="auth-backdrop"></div>
         <header class="auth-header">
@@ -49,9 +49,8 @@
                     <div class="signup-progress"><span class="progress-step active">1 <small>Your details</small></span><i></i><span class="progress-step">2 <small>Verify contact</small></span><i></i><span class="progress-step">3 <small>Ready to ride</small></span></div>
                     <label class="input-group"><span>Full Name</span><span class="input-control"><i>♟</i><input id="full-name" name="full_name" autocomplete="name" placeholder="Your full name" required></span><small class="field-error" data-error-for="full-name"></small></label>
                     <div class="two-columns"><label class="input-group"><span>Email Address</span><span class="input-control"><i>✉</i><input id="signup-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required></span><small class="field-error" data-error-for="signup-email"></small></label><label class="input-group"><span>Phone Number</span><span class="input-control"><i>⌕</i><input id="signup-phone" name="phone" inputmode="numeric" maxlength="10" autocomplete="tel" placeholder="9876543210" required></span><small class="field-error" data-error-for="signup-phone"></small></label></div>
-                    <div class="otp-row"><label class="input-group"><span>Email OTP</span><span class="input-control"><i>⌁</i><input id="email-otp" name="email_otp" inputmode="numeric" maxlength="6" placeholder="6-digit code" required></span><small class="field-error" data-error-for="email-otp"></small></label><button class="otp-button" type="button" data-otp-channel="EMAIL">Send email code</button></div>
-                    <div class="otp-row"><label class="input-group"><span>Mobile OTP</span><span class="input-control"><i>⌁</i><input id="phone-otp" name="phone_otp" inputmode="numeric" maxlength="6" placeholder="6-digit code" required></span><small class="field-error" data-error-for="phone-otp"></small></label><button class="otp-button" type="button" data-otp-channel="SMS">Send mobile code</button></div>
-                    <div class="shopkeeper-fields hidden"><label class="input-group"><span>Shop Name</span><span class="input-control"><i>▤</i><input id="shop-name" name="shop_name" placeholder="Your rental shop name"></span><small class="field-error" data-error-for="shop-name"></small></label><label class="input-group"><span>Shop Address</span><span class="input-control"><i>⌖</i><input id="shop-address" name="shop_address" placeholder="Full shop address"><button class="show-password" type="button" id="location-button" aria-label="Use current location">⌖</button></span><small class="field-error" data-error-for="shop-address"></small></label></div>
+                    <div class="otp-row"><label class="input-group"><span>Email OTP</span><span class="input-control"><i>⌁</i><input id="email-otp" name="email_otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" required></span><small class="field-error" data-error-for="email-otp"></small></label><button class="otp-button" type="button" data-otp-channel="EMAIL">Send email code</button></div>
+                    <div class="shopkeeper-fields hidden"><label class="input-group"><span>Shop Name</span><span class="input-control"><i>▤</i><input id="shop-name" name="shop_name" placeholder="Your rental shop name"></span><small class="field-error" data-error-for="shop-name"></small></label><label class="input-group"><span>Shop Address</span><span class="input-control"><i>⌖</i><input id="shop-address" name="shop_address" data-place-autocomplete="true" autocomplete="street-address" placeholder="Search your shop address"><button class="show-password" type="button" data-use-current-location data-location-target="shop-address" aria-label="Use current location">⌖</button></span><input type="hidden" id="shop-latitude" name="shop_latitude"><input type="hidden" id="shop-longitude" name="shop_longitude"><input type="hidden" id="shop-place-id" name="shop_place_id"><small class="field-error" data-error-for="shop-address"></small></label></div>
                     <label class="input-group"><span>Create Password</span><span class="input-control"><i>♙</i><input id="signup-password" name="password" type="password" autocomplete="new-password" placeholder="Build a strong password" required><button class="show-password" type="button" data-toggle-password="signup-password" aria-label="Show password">◉</button></span><small class="field-error" data-error-for="signup-password"></small></label>
                     <div class="password-meter"><span></span><span></span><span></span><span></span></div><ul class="password-rules" id="password-rules"><li data-rule="length">10+ characters</li><li data-rule="upper">Uppercase letter</li><li data-rule="lower">Lowercase letter</li><li data-rule="number">Number</li><li data-rule="special">Special character</li><li data-rule="space">No spaces</li></ul>
                     <label class="input-group"><span>Confirm Password</span><span class="input-control"><i>♙</i><input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password" placeholder="Repeat your password" required><button class="show-password" type="button" data-toggle-password="confirm-password" aria-label="Show password">◉</button></span><small class="field-error" data-error-for="confirm-password"></small></label>
@@ -59,11 +58,12 @@
                     <button class="submit-button" type="submit"><span>Create Account</span><b>→</b></button>
                     <p class="switch-copy">Already have an account? <button type="button" class="text-button" data-mode-button="login">Log In</button></p>
                 </form>
-                <p class="development-note">Development mode: OTPs are logged by Django and shown here locally until a provider key is configured.</p>
+                <p class="development-note">Email verification is required. In local DEBUG mode, the email OTP is shown and filled automatically until Brevo is configured.</p>
             </section>
         </main>
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="{% static 'js/auth.js' %}"></script>
+    <script src="{% static 'js/maps.js' %}"></script>
+    <script src="{% static 'js/auth.js' %}?v=20260924-email-otp"></script>
 </body>
 </html>

@@ -35,6 +35,7 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("role", User.Role.ADMIN)
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
+        extra_fields.setdefault("is_email_verified", True)
         if extra_fields.get("is_staff") is not True or extra_fields.get("is_superuser") is not True:
             raise ValueError("Superuser must have is_staff=True and is_superuser=True.")
         return self._create_user(email, phone_number, password, **extra_fields)
@@ -81,10 +82,14 @@ class ShopkeeperProfile(models.Model):
         PENDING = "PENDING", "Pending"
         VERIFIED = "VERIFIED", "Verified"
         REJECTED = "REJECTED", "Rejected"
+        REVOKED = "REVOKED", "Revoked"
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="shopkeeper_profile")
     shop_name = models.CharField(max_length=120)
     shop_address = models.CharField(max_length=255)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    google_place_id = models.CharField(max_length=255, blank=True)
     verification_status = models.CharField(
         max_length=20,
         choices=VerificationStatus.choices,

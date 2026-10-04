@@ -7,33 +7,33 @@ This project is based on the Vehicle Rental Services proposal for team
 - Local sellers who manage shops, verification details, vehicles, pricing, and availability.
 - Administrators who manage users, sellers, vehicles, bookings, payments, verification, reports, and audit records.
 
-## Planned domain areas
+## Domain areas and current milestone
 
 The Django app layout reflects the proposal's major responsibilities:
 
 | Domain | Planned responsibility |
 | --- | --- |
-| `accounts` | Authentication, profiles, and role-based access |
-| `shops` | Local seller and shop registration/details |
-| `vehicles` | Vehicle listings, categories, pricing, and availability |
-| `bookings` | Reservations, cancellations, history, and concurrency-safe booking |
+| `accounts` | Authentication, profiles, email OTP, and role-based access |
+| `shops` | Shopkeeper onboarding, verification status, global location, and nearby search |
+| `vehicles` | Vehicle listings, categories, pricing, photos, availability, and admin moderation |
+| `bookings` | Reservations, history, seven-day date rules, and concurrency-safe booking |
 | `payments` | Payment records and future payment-service integration |
 | `verification` | Seller, vehicle, and customer verification workflows |
 | `adminpanel` | Administration, reports, approvals, and audit views |
 | `notifications` | Booking, payment, verification, and background-job notifications |
 
-## OS and DBMS integration direction
+## OS and DBMS integration implemented
 
-The planned MySQL layer will support normalized relational data, keys, constraints,
-indexes, joins, views, transactions, and concurrency control. The booking workflow
-is the primary DBMS/OS integration point: transactions and row locking should prevent
-double-booking when multiple customers request the same vehicle concurrently.
+The MySQL layer now has normalized relational models, keys, constraints, indexes,
+joins, a reporting view, a stored procedure, transactions, audit records, and
+concurrency control. The booking workflow is the primary DBMS/OS integration point:
+transactions and row locking prevent double-booking when multiple customers request
+the same vehicle concurrently.
 
-Future OS-focused work can demonstrate critical sections, synchronization, race
-condition handling, deadlock detection/recovery, scheduling of background jobs,
-file management, permissions, and audit-friendly operations. Those concerns are
-intentionally represented by the app boundaries and database folders now, without
-implementing business logic in this initial website pass.
+OS-focused implementation now includes a threaded local preview server, filesystem
+vehicle-media management, role/access control, scheduled booking expiry, a MySQL
+wait-for graph deadlock checker, safe retry-oriented recovery guidance, and a MySQL
+backup launcher. Linux service/cron deployment can use the same management commands.
 
 ## Stack decision
 
@@ -41,4 +41,3 @@ One proposal page contains an earlier React/Node/Express approach. The direct pr
 implementation request specifies HTML, CSS, JavaScript, Python, Django, and MySQL 8.4,
 so this repository follows that requested stack and does not add React, Node, Express,
 or another frontend framework.
-
