@@ -58,11 +58,13 @@ function setMode(mode) {
     document.querySelectorAll('.auth-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.modeButton === mode));
     document.querySelector('#login-form').classList.toggle('hidden', mode !== 'login');
     document.querySelector('#signup-form').classList.toggle('hidden', mode !== 'signup');
+    document.querySelector('#reset-form').classList.add('hidden');
     if (mode === 'signup') document.querySelector('#panel-title').textContent = page.dataset.role === 'SHOPKEEPER' ? 'Create Shopkeeper Account' : 'Create User Account';
     else document.querySelector('#panel-title').textContent = page.dataset.role === 'SHOPKEEPER' ? 'Shopkeeper Login' : page.dataset.role === 'ADMIN' ? 'Admin Login' : 'User Login';
     clearErrors();
     messageBox.className = 'notice';
     messageBox.textContent = '';
+    placeCaptcha();
 }
 
 document.querySelectorAll('[data-role-button]').forEach((button) => button.addEventListener('click', () => setRole(button.dataset.roleButton)));
@@ -95,17 +97,12 @@ async function sendOtp(button) {
     if (!validEmail(contact)) return setError('signup-email', 'Enter a valid email before requesting the OTP.');
     button.disabled = true;
     try {
-        const response = await fetch('/api/auth/send-otp/', { method: 'POST', headers: {'Content-Type':'application/json', 'X-CSRFToken': csrfToken()}, body: JSON.stringify({ channel, contact }) });
+        const response = await fetch('/api/auth/send-otp/', { method: 'POST', headers: {'Content-Type':'application/json', 'X-CSRFToken': csrfToken()}, body: JSON.stringify({ channel, contact, ...captchaPayload() }) });
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || 'OTP could not be sent.');
-        const otpInput = document.querySelector('#email-otp');
-        if (data.debug_code) {
-            otpInput.value = data.debug_code;
-            showMessage(`${data.message} Local development OTP: ${data.debug_code}`, 'success');
-            showToast('Email OTP filled for local testing.');
-        } else {
-            showMessage(data.message, 'success');
-        }
+        showMessage(data.message, 'success');
+        placeCaptcha();
+        refreshCaptcha();
         let seconds = 60;
         const original = button.textContent;
         const timer = setInterval(() => { seconds -= 1; button.textContent = `${seconds}s`; if (seconds <= 0) { clearInterval(timer); button.disabled = false; button.textContent = original; } }, 1000);
@@ -153,9 +150,94 @@ async function submitAuth(url, body) {
         showMessage(data.message, 'success');
         showToast(data.message);
         if (data.redirect) setTimeout(() => { window.location.href = data.redirect; }, 900);
-    } catch (error) { showMessage(error.message, 'error'); } finally { button.disabled = false; }
+    } catch (error) { showMessage(error.message, 'error'); } finally { button.disabled = false; placeCaptcha();
+refreshCaptcha(); }
 }
 
 const query = new URLSearchParams(window.location.search);
 setRole(['USER', 'SHOPKEEPER', 'ADMIN'].includes(query.get('role')) ? query.get('role') : 'USER');
 setMode(query.get('mode') === 'signup' ? 'signup' : 'login');
+
+function placeCaptcha() {
+    const card = document.querySelector('#captcha-card');
+    const target = document.querySelector('#reset-form:not(.hidden), #signup-form:not(.hidden), #login-form:not(.hidden)');
+    if (!card || !target) return;
+    const submit = target.querySelector('.submit-button');
+    if (submit) target.insertBefore(card, submit);
+}
+function resetMode(active) {
+    document.querySelector('#login-form').classList.toggle('hidden', active);
+    document.querySelector('#signup-form').classList.toggle('hidden', active);
+    document.querySelector('#reset-form').classList.toggle('hidden', !active);
+    if (active) { document.querySelector('#panel-title').textContent = 'Reset your password'; document.querySelector('#panel-subtitle').textContent = 'Use the secure code sent to your verified email.'; }
+    else setMode('login');
+    placeCaptcha();
+}
+
+function cooldown(button) {
+    let seconds = 60; const original = button.textContent; button.disabled = true;
+    const timer = setInterval(() => { seconds -= 1; button.textContent = `${seconds}s`; if (seconds <= 0) { clearInterval(timer); button.disabled = false; button.textContent = original; } }, 1000);
+}
+
+document.querySelector('#forgot-password-button').addEventListener('click', () => resetMode(true));
+document.querySelector('#back-to-login').addEventListener('click', () => resetMode(false));
+document.querySelector('#reset-otp-button').addEventListener('click', async (event) => {
+    const email = document.querySelector('#reset-email').value.trim();
+    if (!validEmail(email)) return setError('reset-email', 'Enter your account email first.');
+    const button = event.currentTarget; clearErrors();
+    try {
+        const response = await fetch('/api/auth/password-reset/send-otp/', {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken()}, body:JSON.stringify({email, ...captchaPayload()})});
+        const data = await response.json(); if (!response.ok) throw new Error(data.message);
+        showMessage(data.message, 'success'); placeCaptcha(); refreshCaptcha(); cooldown(button);
+    } catch (error) { showMessage(error.message, 'error'); }
+});
+document.querySelector('#reset-form').addEventListener('submit', async (event) => {
+    event.preventDefault(); clearErrors();
+    const email = document.querySelector('#reset-email').value.trim(); const otp = document.querySelector('#reset-otp').value.trim();
+    const password = document.querySelector('#reset-password').value; const confirm_password = document.querySelector('#reset-confirm-password').value;
+    if (!validEmail(email) || !otp || !validPassword(password) || password !== confirm_password) { showMessage('Enter a valid email, code, and matching strong password.', 'error'); return; }
+    const button = document.querySelector('#reset-form .submit-button'); button.disabled = true;
+    try {
+        const response = await fetch('/api/auth/password-reset/confirm/', {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken()}, body:JSON.stringify({email, otp, password, confirm_password, ...captchaPayload()})});
+        const data = await response.json(); if (!response.ok) throw new Error(data.message);
+        showMessage(data.message, 'success'); setTimeout(() => resetMode(false), 1200);
+    } catch (error) { showMessage(error.message, 'error'); } finally { button.disabled = false; placeCaptcha();
+refreshCaptcha(); }
+});
+
+let captchaId = '';
+async function refreshCaptcha() {
+    const image = document.querySelector('#captcha-image');
+    const answer = document.querySelector('#captcha-answer');
+    try {
+        const response = await fetch('/api/auth/captcha/', {method: 'POST', headers: {'X-CSRFToken': csrfToken()}});
+        const data = await response.json();
+        if (!response.ok) throw new Error('Security code could not load.');
+        captchaId = data.captcha_id; image.src = data.image; answer.value = ''; answer.focus();
+    } catch (error) { showMessage(error.message, 'error'); }
+}
+function captchaPayload() { return {captcha_id: captchaId, captcha_answer: document.querySelector('#captcha-answer').value.trim().toUpperCase()}; }
+document.querySelector('#captcha-refresh').addEventListener('click', refreshCaptcha);
+
+const originalSubmitAuth = submitAuth;
+submitAuth = async function(url, body) {
+    const captcha = captchaPayload();
+    if (!captcha.captcha_id || captcha.captcha_answer.length !== 5) { setError('captcha-answer', 'Enter the 5-character security code.'); return; }
+    await originalSubmitAuth(url, {...body, ...captcha});
+    placeCaptcha();
+refreshCaptcha();
+};
+
+const originalResetSubmit = document.querySelector('#reset-form').onsubmit;
+// Captcha is appended by the reset form listener below using its fetch payload.
+const resetForm = document.querySelector('#reset-form');
+resetForm.addEventListener('submit', (event) => {}, true);
+placeCaptcha();
+refreshCaptcha();
+
+
+
+
+
+
+

@@ -36,15 +36,33 @@
                 <div class="panel-heading"><div class="panel-icon">♟</div><div><h2 id="panel-title">User Login</h2><p id="panel-subtitle">Welcome back! Continue your journey with RideHub.</p></div></div>
                 <div class="auth-tabs" role="tablist" aria-label="Account access mode"><button class="auth-tab active" data-mode-button="login" type="button">Log In</button><button class="auth-tab" data-mode-button="signup" type="button">Create Account</button></div>
                 <div class="notice" id="server-message" role="status"></div>
-
+                <div class="captcha-card" id="captcha-card">
+                    <div class="captcha-heading"><span>Security check</span><small>Enter the code shown</small></div>
+                    <div class="captcha-row">
+                        <img id="captcha-image" alt="Security code">
+                        <button id="captcha-refresh" type="button" aria-label="Refresh security code">↻</button>
+                        <label class="captcha-input"><span class="sr-only">Security code</span><span class="input-control"><i>⌁</i><input id="captcha-answer" inputmode="text" autocomplete="off" maxlength="5" placeholder="Enter code" required></span><small class="field-error" data-error-for="captcha-answer"></small></label>
+                    </div>
+                </div>
                 <form id="login-form" class="auth-form" novalidate>
                     <label class="input-group"><span>Email or Phone Number</span><span class="input-control"><i>✉</i><input id="login-identifier" name="identifier" autocomplete="username" placeholder="you@example.com or 9876543210" required></span><small class="field-error" data-error-for="login-identifier"></small></label>
                     <label class="input-group"><span>Password</span><span class="input-control"><i>♙</i><input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required><button class="show-password" type="button" data-toggle-password="login-password" aria-label="Show password">◉</button></span><small class="field-error" data-error-for="login-password"></small></label>
-                    <div class="form-options"><label class="check-line"><input type="checkbox" name="remember"><span>Remember me</span></label><button class="text-button" type="button" data-toast="Password recovery will be connected to the verified email and phone flow.">Forgot password?</button></div>
+                    <div class="form-options"><label class="check-line"><input type="checkbox" name="remember"><span>Remember me</span></label><button class="text-button" id="forgot-password-button" type="button">Forgot password?</button></div>
                     <button class="submit-button" type="submit"><span>Log In</span><b>→</b></button>
                     <p class="switch-copy">Don't have an account? <button type="button" class="text-button" data-mode-button="signup">Sign Up</button></p>
                 </form>
 
+
+                <form id="reset-form" class="auth-form hidden" novalidate>
+                    <p class="eyebrow">PASSWORD RECOVERY</p>
+                    <p class="switch-copy">We will email a six-digit security code to your verified address.</p>
+                    <label class="input-group"><span>Email Address</span><span class="input-control"><i>✉</i><input id="reset-email" type="email" autocomplete="email" placeholder="you@example.com" required></span><small class="field-error" data-error-for="reset-email"></small></label>
+                    <div class="otp-row"><label class="input-group"><span>Reset OTP</span><span class="input-control"><i>⌁</i><input id="reset-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" required></span><small class="field-error" data-error-for="reset-otp"></small></label><button class="otp-button" id="reset-otp-button" type="button">Send reset code</button></div>
+                    <label class="input-group"><span>New Password</span><span class="input-control"><i>♙</i><input id="reset-password" type="password" autocomplete="new-password" placeholder="Create a strong password" required></span><small class="field-error" data-error-for="reset-password"></small></label>
+                    <label class="input-group"><span>Confirm New Password</span><span class="input-control"><i>♙</i><input id="reset-confirm-password" type="password" autocomplete="new-password" placeholder="Repeat your new password" required></span><small class="field-error" data-error-for="reset-confirm-password"></small></label>
+                    <button class="submit-button" type="submit"><span>Reset Password</span><b>→</b></button>
+                    <p class="switch-copy"><button id="back-to-login" type="button" class="text-button">Back to Log In</button></p>
+                </form>
                 <form id="signup-form" class="auth-form hidden" novalidate>
                     <div class="signup-progress"><span class="progress-step active">1 <small>Your details</small></span><i></i><span class="progress-step">2 <small>Verify contact</small></span><i></i><span class="progress-step">3 <small>Ready to ride</small></span></div>
                     <label class="input-group"><span>Full Name</span><span class="input-control"><i>♟</i><input id="full-name" name="full_name" autocomplete="name" placeholder="Your full name" required></span><small class="field-error" data-error-for="full-name"></small></label>
@@ -58,12 +76,17 @@
                     <button class="submit-button" type="submit"><span>Create Account</span><b>→</b></button>
                     <p class="switch-copy">Already have an account? <button type="button" class="text-button" data-mode-button="login">Log In</button></p>
                 </form>
-                <p class="development-note">Email verification is required. In local DEBUG mode, the email OTP is shown and filled automatically until Brevo is configured.</p>
+                <p class="development-note">Email verification is required. Your one-time code is delivered only to your email address.</p>
             </section>
         </main>
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="{% static 'js/maps.js' %}"></script>
-    <script src="{% static 'js/auth.js' %}?v=20260924-email-otp"></script>
+    <script src="{% static 'js/auth.js' %}?v=20261010-single-form"></script>
 </body>
 </html>
+
+
+
+
+

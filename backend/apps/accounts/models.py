@@ -134,3 +134,14 @@ class OTPChallenge(models.Model):
 
     def __str__(self):
         return f"{self.channel} OTP for {self.contact}"
+
+class CaptchaChallenge(models.Model):
+    challenge_id = models.CharField(max_length=128, unique=True)
+    answer_hash = models.CharField(max_length=128)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["challenge_id", "expires_at"])]
