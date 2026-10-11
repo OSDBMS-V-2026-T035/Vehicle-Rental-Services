@@ -25,6 +25,15 @@
   </div>
   <div class="portal-toast" id="portal-toast" role="status"></div>
   <script>window.RIDEHUB_PORTAL={role:"{{ portal_role }}",name:"{{ user_name|escapejs }}",email:"{{ user_email|escapejs }}",phone:"{{ user_phone|escapejs }}",emailVerified:{{ user_email_verified|yesno:"true,false" }},label:"{{ role_label|escapejs }}",csrf:"{{ csrf_token }}"};</script>
-  {% if portal_role == 'USER' %}<script src="{% static 'js/user-portal.js' %}?v=20261011-2"></script>{% else %}<script src="{% static 'js/portal.js' %}?v=20261011"></script>{% endif %}
+  {% if portal_role == 'USER' %}
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <script src="{% static 'js/user-portal.js' %}?v=20261011-3"></script>
+  {% elif portal_role == 'SHOPKEEPER' %}
+    <script src="{% static 'js/shopkeeper-portal.js' %}?v=20261011"></script>
+  {% elif portal_role == 'ADMIN' %}
+    <script src="{% static 'js/admin-portal.js' %}?v=20261011"></script>
+  {% else %}
+    <script src="{% static 'js/portal.js' %}?v=20261011"></script>
+  {% endif %}
 </body>
 </html>

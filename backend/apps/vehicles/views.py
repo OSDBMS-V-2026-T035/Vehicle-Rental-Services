@@ -39,6 +39,8 @@ def _vehicle_payload(vehicle, distance=None):
         "daily_rate": str(vehicle.daily_rate),
         "seating_capacity": vehicle.seating_capacity,
         "description": vehicle.description,
+        "listing_status": vehicle.listing_status,
+        "is_available": vehicle.is_available,
         "shop": profile.shop_name,
         "address": profile.shop_address,
         "image_url": vehicle.image.url if vehicle.image else default_images.get(vehicle.vehicle_type, "/static/images/car.jpg"),

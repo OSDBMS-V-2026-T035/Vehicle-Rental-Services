@@ -8,7 +8,10 @@ from django.views.generic import TemplateView
 
 from apps.accounts.views import auth_page, captcha_view, login_view, logout_view, password_reset_confirm_view, password_reset_otp_view, portal_view, send_otp_view, signup_view, verify_signup_otp_view
 from apps.adminpanel.views import shopkeeper_action, user_action, vehicle_action
+from apps.adminpanel.portal_views import admin_audit, admin_review_queues, admin_summary
 from apps.bookings.views import booking_history, create_booking, create_checkout_booking_view
+from apps.accounts.shopkeeper_portal_views import set_vehicle_availability, shopkeeper_reservation_action, shopkeeper_reservations, shopkeeper_summary, update_vehicle_rate
+from apps.payments.views import create_razorpay_order, razorpay_webhook, verify_razorpay_payment
 from apps.shops.views import search_shops, update_shopkeeper_profile
 from apps.vehicles.views import create_vehicle, my_vehicles, search_vehicles
 
@@ -26,11 +29,19 @@ urlpatterns = [
     path("api/auth/password-reset/confirm/", password_reset_confirm_view, name="api-password-reset-confirm"),
     path("control-panel/", portal_view, {"portal_role": "ADMIN"}, name="admin-portal"),
     path("api/admin/shopkeepers/<int:profile_id>/action/", shopkeeper_action, name="admin-shopkeeper-action"),
+    path("api/admin/summary/", admin_summary, name="admin-summary"),
+    path("api/admin/review-queues/", admin_review_queues, name="admin-review-queues"),
+    path("api/admin/audit/", admin_audit, name="admin-audit"),
     path("api/admin/vehicles/<int:vehicle_id>/action/", vehicle_action, name="admin-vehicle-action"),
     path("api/admin/users/<int:user_id>/action/", user_action, name="admin-user-action"),
     path("shopkeeper/", portal_view, {"portal_role": "SHOPKEEPER"}, name="shopkeeper-portal"),
     path("user-portal/", portal_view, {"portal_role": "USER"}, name="user-portal"),
     path("api/shopkeeper/profile/", update_shopkeeper_profile, name="shopkeeper-profile-update"),
+    path("api/shopkeeper/summary/", shopkeeper_summary, name="shopkeeper-summary"),
+    path("api/shopkeeper/reservations/", shopkeeper_reservations, name="shopkeeper-reservations"),
+    path("api/shopkeeper/reservations/<int:booking_id>/action/", shopkeeper_reservation_action, name="shopkeeper-reservation-action"),
+    path("api/shopkeeper/vehicles/<int:vehicle_id>/availability/", set_vehicle_availability, name="shopkeeper-vehicle-availability"),
+    path("api/shopkeeper/vehicles/<int:vehicle_id>/rate/", update_vehicle_rate, name="shopkeeper-vehicle-rate"),
     path("api/shopkeeper/vehicles/", my_vehicles, name="shopkeeper-vehicles"),
     path("api/shopkeeper/vehicles/create/", create_vehicle, name="vehicle-create"),
     path("api/shops/search/", search_shops, name="shops-search"),
@@ -38,6 +49,9 @@ urlpatterns = [
     path("api/bookings/", create_booking, name="booking-create"),
     path("api/bookings/checkout/", create_checkout_booking_view, name="booking-checkout"),
     path("api/bookings/history/", booking_history, name="booking-history"),
+    path("api/payments/razorpay/order/<int:payment_id>/", create_razorpay_order, name="razorpay-create-order"),
+    path("api/payments/razorpay/verify/", verify_razorpay_payment, name="razorpay-verify-payment"),
+    path("api/payments/razorpay/webhook/", razorpay_webhook, name="razorpay-webhook"),
     path("admin/", admin.site.urls),
 ]
 

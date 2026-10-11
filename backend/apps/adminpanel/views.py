@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_POST
 
 from apps.accounts.models import ShopkeeperProfile, User
+from apps.notifications.services import notify_user
 from .models import AuditLog
 from apps.vehicles.models import Vehicle
 
@@ -74,6 +75,7 @@ def shopkeeper_action(request, profile_id):
         profile.save(update_fields=["verification_status", "updated_at"])
         AuditLog.objects.create(actor=request.user, action=f"shopkeeper_{action}", entity_type="shopkeeper", entity_id=profile.id, metadata={"email": profile.user.email})
     label = {"approve": "approved", "reject": "rejected", "revoke": "revoked"}[action]
+    notify_user(profile.user, f"Shopkeeper account {label}", f"Your shopkeeper account for {profile.shop_name} was {label} by the RideHub review team.")
     return JsonResponse({"ok": True, "message": f"Shopkeeper {label} successfully."})
 
 
@@ -89,6 +91,7 @@ def vehicle_action(request, vehicle_id):
         vehicle.admin_note = str(_payload(request).get("note", "")).strip()[:255]
         vehicle.save(update_fields=["listing_status", "admin_note", "updated_at"])
         AuditLog.objects.create(actor=request.user, action=f"vehicle_{action}", entity_type="vehicle", entity_id=vehicle.id, metadata={"registration_number": vehicle.registration_number})
+    notify_user(vehicle.shopkeeper.user, f"Vehicle listing {action}d", f"Your {vehicle.display_name} listing was {action}d by the RideHub review team.")
     return JsonResponse({"ok": True, "message": f"Vehicle {'approved' if action == 'approve' else 'rejected'} successfully."})
 
 
@@ -105,4 +108,5 @@ def user_action(request, user_id):
         user.is_active = action == "restore"
         user.save(update_fields=["is_active", "updated_at"])
         AuditLog.objects.create(actor=request.user, action=f"user_{action}", entity_type="user", entity_id=user.id, metadata={"email": user.email})
+    notify_user(user, f"Account {action}d", f"Your RideHub account was {action}d by the platform administration team.")
     return JsonResponse({"ok": True, "message": f"User {'restored' if action == 'restore' else 'revoked'} successfully."})

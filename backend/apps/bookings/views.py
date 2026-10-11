@@ -11,6 +11,8 @@ from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_GET, require_POST
 
 from apps.accounts.models import User
+from apps.notifications.services import notify_user
+from apps.payments.models import PaymentTransaction
 from .models import Booking
 from .services import create_checkout_booking, create_locked_booking
 from apps.accounts.models import phone_validator
@@ -47,10 +49,17 @@ def create_booking(request):
         )
     except (TypeError, ValueError):
         return JsonResponse({"ok": False, "message": "This vehicle is unavailable for the selected dates."}, status=409)
+    payment, _ = PaymentTransaction.objects.get_or_create(
+        booking=booking,
+        defaults={"customer": request.user, "amount": booking.total_amount},
+    )
+    notify_user(request.user, "Booking request received", f"Your booking request for {booking.vehicle.display_name} is ready for secure payment.")
+    notify_user(booking.vehicle.shopkeeper.user, "New booking request", f"A customer requested {booking.vehicle.display_name} from {pickup_date.isoformat()} to {return_date.isoformat()}. Review it after payment is verified.")
     return JsonResponse({
         "ok": True,
         "message": "Booking request created safely.",
         "booking_id": booking.id,
+        "payment_id": payment.id,
         "total_amount": str(booking.total_amount),
     })
 
@@ -109,10 +118,17 @@ def create_checkout_booking_view(request):
         )
     except (TypeError, ValueError, ValidationError) as exc:
         return JsonResponse({"ok": False, "message": str(exc)}, status=409)
+    payment, _ = PaymentTransaction.objects.get_or_create(
+        booking=booking,
+        defaults={"customer": request.user, "amount": booking.total_amount},
+    )
+    notify_user(request.user, "Booking request received", f"Your booking request for {booking.vehicle.display_name} is ready for secure payment.")
+    notify_user(booking.vehicle.shopkeeper.user, "New booking request", f"A customer requested {booking.vehicle.display_name} from {pickup_date.isoformat()} to {return_date.isoformat()}. Review it after payment is verified.")
     return JsonResponse({
         "ok": True,
-        "message": "Your booking request is saved. Payment will be added in the next step.",
+        "message": "Your booking request is saved. Complete the secure payment to send it for shop review.",
         "booking_id": booking.id,
+        "payment_id": payment.id,
         "total_amount": str(booking.total_amount),
         "status": booking.status,
     })

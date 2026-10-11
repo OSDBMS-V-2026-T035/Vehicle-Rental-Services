@@ -1,3 +1,5 @@
 Django>=5.2,<6.0
 mysqlclient>=2.2,<3.0
 gunicorn>=23.0,<24.0
+setuptools<81
+razorpay>=1.4,<2.0
