@@ -2,6 +2,13 @@ function csrfToken() {
     return document.cookie.split('; ').find((row) => row.startsWith('csrftoken='))?.split('=')[1] || '';
 }
 
+document.querySelector('[data-sidebar-toggle]')?.addEventListener('click', () => {
+    document.querySelector('#workspace-sidebar')?.classList.toggle('open');
+});
+document.querySelectorAll('.sidebar-nav .nav-item[href^="#"]').forEach((link) => {
+    link.addEventListener('click', () => document.querySelector('#workspace-sidebar')?.classList.remove('open'));
+});
+
 function dashboardMessage(message, type = '') {
     const box = document.querySelector('#dashboard-message');
     if (!box) return;
@@ -22,20 +29,32 @@ async function postForm(url, body, isFormData = false) {
     return data;
 }
 
-document.querySelectorAll('[data-admin-action]').forEach((button) => {
+async function handleActionButton(button) {
+    const action = button.dataset.action || (button.dataset.actionKind === 'availability' ? 'availability' : 'update');
+    const isDelete = button.dataset.actionKind === 'delete';
+    const confirmation = button.dataset.actionKind === 'availability'
+        ? `${button.dataset.available === 'true' ? 'Publish' : 'Pause'} this vehicle for new searches?`
+        : isDelete ? 'Remove this vehicle from your active fleet? Existing booking history will be preserved.'
+        : `${action.toLowerCase() === 'revoke' ? 'Revoke this account/listing?' : `${action[0].toUpperCase()}${action.slice(1).toLowerCase()} this request?`}`;
+    if (!window.confirm(confirmation)) return;
+    button.disabled = true;
+    try {
+        const body = button.dataset.actionKind === 'availability'
+            ? JSON.stringify({ is_available: button.dataset.available === 'true' })
+            : isDelete ? '{}'
+            : JSON.stringify({ action });
+        const data = await postForm(button.dataset.adminAction || button.dataset.actionUrl, body);
+        dashboardMessage(data.message, 'success');
+        window.setTimeout(() => window.location.reload(), 500);
+    } catch (error) {
+        dashboardMessage(error.message, 'error');
+        button.disabled = false;
+    }
+}
+
+document.querySelectorAll('[data-admin-action], [data-action-url]').forEach((button) => {
     button.addEventListener('click', async () => {
-        const action = button.dataset.action;
-        const confirmation = action === 'revoke' ? 'Revoke this account/listing?' : `${action[0].toUpperCase()}${action.slice(1)} this request?`;
-        if (!window.confirm(confirmation)) return;
-        button.disabled = true;
-        try {
-            const data = await postForm(button.dataset.adminAction, JSON.stringify({ action }));
-            dashboardMessage(data.message, 'success');
-            window.setTimeout(() => window.location.reload(), 500);
-        } catch (error) {
-            dashboardMessage(error.message, 'error');
-            button.disabled = false;
-        }
+        await handleActionButton(button);
     });
 });
 

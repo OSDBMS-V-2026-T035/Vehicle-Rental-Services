@@ -3,6 +3,8 @@
 .user-portal-page { --user-blue:#70c5ff; --user-ink:#f4f8ff; --user-muted:#94a9c1; --user-line:rgba(130,181,225,.18); --user-panel:rgba(13,28,46,.92); font-family:"DM Sans","Segoe UI",system-ui,sans-serif; background:radial-gradient(circle at 80% -10%,rgba(35,122,207,.23),transparent 32rem),#07111e; }
 .user-portal-page .portal-topbar { padding-inline:48px; }
 .user-portal-page .portal-content { width:min(1320px,calc(100% - 72px)); padding-top:42px; padding-bottom:72px; }
+.user-portal-page .portal-brand-mark { display:grid; width:38px; height:38px; place-items:center; color:var(--user-blue); font-size:0; transform:none; text-shadow:none; }
+.user-portal-page .portal-brand-mark svg { width:29px; height:29px; fill:none; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:3.2; filter:drop-shadow(0 0 8px rgba(112,197,255,.55)); }
 .user-portal-page h1,.user-portal-page h2,.user-portal-page h3,.user-portal-page p { letter-spacing:-.015em; }
 .user-eyebrow { margin:0 0 9px; color:var(--user-blue); font-size:10px; font-weight:800; letter-spacing:.22em!important; text-transform:uppercase; }
 .user-hero { min-height:215px; display:flex; justify-content:space-between; align-items:center; gap:30px; margin-bottom:22px; padding:34px 38px; overflow:hidden; border:1px solid rgba(113,187,247,.22); border-radius:24px; background:linear-gradient(112deg,rgba(18,55,91,.95),rgba(13,26,45,.82) 64%,rgba(38,35,79,.7)),url('../images/mountains.jpg') center/cover; box-shadow:0 25px 70px rgba(0,0,0,.18); }

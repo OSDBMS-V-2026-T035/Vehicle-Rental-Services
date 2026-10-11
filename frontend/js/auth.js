@@ -166,7 +166,12 @@ document.querySelector('#login-form').addEventListener('submit', async (event) =
     if (!identifier) setError('login-identifier', 'Email or phone is required.');
     if (!password) setError('login-password', 'Password is required.');
     if (!identifier || !password) return;
-    await submitAuth('/api/auth/login/', { identifier, password, role: page.dataset.role });
+    await submitAuth('/api/auth/login/', {
+        identifier,
+        password,
+        role: page.dataset.role,
+        remember: document.querySelector('#login-form input[name="remember"]')?.checked === true,
+    });
 });
 
 document.querySelector('#signup-form').addEventListener('submit', async (event) => {
@@ -183,10 +188,10 @@ document.querySelector('#signup-form').addEventListener('submit', async (event) 
     if (!validPassword(password)) { setError('signup-password', 'Meet all password rules shown below.'); valid = false; }
     if (password !== confirmPassword) { setError('confirm-password', 'Passwords do not match.'); valid = false; }
     if (!emailVerified) { setError('email-otp', 'Click Verify OTP after entering the email code.'); valid = false; }
-    if (page.dataset.role === 'SHOPKEEPER') { if (document.querySelector('#shop-name').value.trim().length < 2) { setError('shop-name', 'Shop name is required.'); valid = false; } if (document.querySelector('#shop-address').value.trim().length < 8) { setError('shop-address', 'Enter a complete shop address.'); valid = false; } }
+    if (page.dataset.role === 'SHOPKEEPER') { if (document.querySelector('#shop-name').value.trim().length < 2) { setError('shop-name', 'Shop name is required.'); valid = false; } if (document.querySelector('#shop-address').value.trim().length < 8) { setError('shop-address', 'Enter a complete shop address.'); valid = false; } if (document.querySelector('#shop-description').value.trim().length < 20) { setError('shop-description', 'Add at least 20 characters about your shop.'); valid = false; } }
     if (!document.querySelector('#terms').checked) { setError('terms', 'Accept the terms to continue.'); valid = false; }
     if (!valid) return;
-    await submitAuth('/api/auth/signup/', { role: page.dataset.role, full_name: fullName, email, phone, email_otp: document.querySelector('#email-otp').value.trim(), password, confirm_password: confirmPassword, terms: true, shop_name: document.querySelector('#shop-name')?.value.trim(), shop_address: document.querySelector('#shop-address')?.value.trim(), shop_latitude: document.querySelector('#shop-latitude')?.value.trim(), shop_longitude: document.querySelector('#shop-longitude')?.value.trim(), shop_place_id: document.querySelector('#shop-place-id')?.value.trim() });
+    await submitAuth('/api/auth/signup/', { role: page.dataset.role, full_name: fullName, email, phone, email_otp: document.querySelector('#email-otp').value.trim(), password, confirm_password: confirmPassword, terms: true, shop_name: document.querySelector('#shop-name')?.value.trim(), shop_address: document.querySelector('#shop-address')?.value.trim(), shop_description: document.querySelector('#shop-description')?.value.trim(), shop_latitude: document.querySelector('#shop-latitude')?.value.trim(), shop_longitude: document.querySelector('#shop-longitude')?.value.trim(), shop_place_id: document.querySelector('#shop-place-id')?.value.trim() });
 });
 
 async function submitAuth(url, body) {
