@@ -18,14 +18,16 @@ def create_locked_booking(*, customer, vehicle_id, pickup_date, return_date):
             )
         except Vehicle.DoesNotExist as exc:
             raise ValueError("This vehicle is unavailable.") from exc
-        conflict = Booking.objects.filter(
+        overlapping = Booking.objects.filter(
             vehicle=vehicle,
             status__in=[Booking.Status.PENDING, Booking.Status.CONFIRMED],
             pickup_date__lte=return_date,
             return_date__gte=pickup_date,
-        ).exists()
-        if conflict:
-            raise ValueError("This vehicle is already reserved for the selected dates.")
+        ).count()
+        # The row lock is the inventory semaphore: competing requests for the
+        # same listing are serialized before the fleet capacity is checked.
+        if overlapping >= vehicle.quantity:
+            raise ValueError("All units of this vehicle are reserved for the selected dates.")
         rental_days = max(1, (return_date - pickup_date).days)
         booking = Booking.objects.create(
             customer=customer,
@@ -52,14 +54,14 @@ def create_checkout_booking(
         except Vehicle.DoesNotExist as exc:
             raise ValueError("This vehicle is no longer available.") from exc
 
-        conflict = Booking.objects.filter(
+        overlapping = Booking.objects.filter(
             vehicle=vehicle,
             status__in=[Booking.Status.PENDING, Booking.Status.CONFIRMED],
             pickup_date__lte=return_date,
             return_date__gte=pickup_date,
-        ).exists()
-        if conflict:
-            raise ValueError("This vehicle was just reserved for the selected dates.")
+        ).count()
+        if overlapping >= vehicle.quantity:
+            raise ValueError("All units of this vehicle were just reserved for the selected dates.")
 
         rental_days = max(1, (return_date - pickup_date).days)
         booking = Booking.objects.create(

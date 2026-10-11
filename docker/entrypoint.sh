@@ -5,6 +5,10 @@ echo "[RideHub] Running Django checks"
 python backend/manage.py check
 echo "[RideHub] Applying database migrations"
 python backend/manage.py migrate --noinput
+if [ -n "${RIDEHUB_ADMIN_PASSWORD:-}" ]; then
+    echo "[RideHub] Ensuring the protected administrator account exists"
+    python backend/manage.py bootstrap_admin
+fi
 echo "[RideHub] Collecting static files"
 python backend/manage.py collectstatic --noinput
 

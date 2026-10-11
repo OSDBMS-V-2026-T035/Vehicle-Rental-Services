@@ -2,6 +2,7 @@ import json
 import re
 from decimal import Decimal, InvalidOperation
 
+from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
@@ -80,7 +81,7 @@ def portal_view(request, portal_role):
 
     portal_config = {
         "USER": (User.Role.USER, "User Portal", "Your RideHub customer space", "Your bookings, saved vehicles, and ride activity will appear here soon."),
-        "SHOPKEEPER": (User.Role.SHOPKEEPER, "Shopkeeper Portal", "Your RideHub business space", "Vehicle management, bookings, and shop controls are under development."),
+        "SHOPKEEPER": (User.Role.SHOPKEEPER, "Shopkeeper Portal", "Your RideHub business space", "Run your fleet, reservations and earnings from one protected workspace."),
         "ADMIN": (User.Role.ADMIN, "Admin Portal", "Your RideHub operations space", "Platform moderation, account management, and reports are under development."),
     }
     expected_role, title, subtitle, description = portal_config[portal_role]
@@ -162,13 +163,14 @@ def signup_view(request):
         validate_password(password, candidate)
         shop_name = str(payload.get("shop_name") or "").strip()
         shop_address = str(payload.get("shop_address") or "").strip()
+        shop_description = " ".join(str(payload.get("shop_description") or "").strip().split())
         shop_latitude = _clean_coordinate(payload.get("shop_latitude"), Decimal("-90"), Decimal("90"), "shop latitude")
         shop_longitude = _clean_coordinate(payload.get("shop_longitude"), Decimal("-180"), Decimal("180"), "shop longitude")
         shop_place_id = str(payload.get("shop_place_id") or "").strip()[:255]
         if (shop_latitude is None) != (shop_longitude is None):
             return _error("Shop latitude and longitude must be provided together.")
-        if role == User.Role.SHOPKEEPER and (len(shop_name) < 2 or len(shop_address) < 8):
-            return _error("Shopkeeper signup needs a valid shop name and address.")
+        if role == User.Role.SHOPKEEPER and (len(shop_name) < 2 or len(shop_address) < 8 or len(shop_description) < 20):
+            return _error("Shopkeeper signup needs a shop name, complete location, and a short shop description.")
         if User.objects.filter(email=email).exists():
             return _error("An account with this email already exists.", field="email", status=409)
         if User.objects.filter(phone_number=phone).exists():
@@ -198,6 +200,7 @@ def signup_view(request):
                     user=user,
                     shop_name=shop_name,
                     shop_address=shop_address,
+                    shop_description=shop_description,
                     latitude=shop_latitude,
                     longitude=shop_longitude,
                     google_place_id=shop_place_id,
@@ -266,6 +269,7 @@ def login_view(request):
     identifier = str(payload.get("identifier") or "").strip()
     password = str(payload.get("password") or "")
     requested_role = str(payload.get("role", User.Role.USER)).upper()
+    remember = payload.get("remember") is True
     if not identifier or not password:
         return _error("Enter your email/phone and password.")
     captcha_error = _captcha_error(payload)
@@ -283,6 +287,9 @@ def login_view(request):
         if profile.verification_status == ShopkeeperProfile.VerificationStatus.REVOKED or not user.is_active:
             return _error("This shopkeeper account has been revoked.", status=403)
     login(request, user, backend="apps.accounts.backends.EmailOrPhoneBackend")
+    # A checked Remember me box gets a persistent session. An unchecked box
+    # deliberately expires the session when the browser closes.
+    request.session.set_expiry(settings.SESSION_COOKIE_AGE if remember else 0)
     if user.role == User.Role.ADMIN:
         redirect = "/control-panel/"
         message = "Admin login successful."

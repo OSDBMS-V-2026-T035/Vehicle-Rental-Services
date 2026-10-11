@@ -12,15 +12,15 @@ function Write-Step([string]$message) {
 }
 
 function Get-EnvValue([string]$key) {
-    if (-not (Test-Path ".env")) {
-        return ""
-    }
     $escapedKey = [regex]::Escape($key)
-    $line = Get-Content ".env" | Where-Object { $_ -match "^\s*$escapedKey\s*=" } | Select-Object -First 1
-    if (-not $line) {
-        return ""
+    foreach ($envFile in @(".env", "env")) {
+        if (-not (Test-Path $envFile)) { continue }
+        $line = Get-Content $envFile | Where-Object { $_ -match "^\s*$escapedKey\s*=" } | Select-Object -First 1
+        if ($line) {
+            return (($line -split "=", 2)[1]).Trim().Trim('"').Trim("'")
+        }
     }
-    return (($line -split "=", 2)[1]).Trim().Trim('"').Trim("'")
+    return ""
 }
 
 function Set-EnvValue([string]$key, [string]$value) {
@@ -219,6 +219,10 @@ FLUSH PRIVILEGES;
     Write-Step "Applying Django database migrations"
     & $venvPython backend/manage.py check
     & $venvPython backend/manage.py migrate --noinput
+    if (Get-EnvValue "RIDEHUB_ADMIN_PASSWORD") {
+        Write-Step "Ensuring the protected RideHub administrator account exists"
+        & $venvPython backend/manage.py bootstrap_admin
+    }
     & $venvPython backend/manage.py collectstatic --noinput
 
     Write-Step "Installing MySQL reporting view and maintenance procedure"

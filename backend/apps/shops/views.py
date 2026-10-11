@@ -2,11 +2,14 @@ import math
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.decorators import login_required
+from django.db.models import Sum
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET, require_POST
 
 from apps.accounts.models import ShopkeeperProfile, User
+from apps.bookings.models import Booking
+from apps.payments.models import PaymentTransaction
 from apps.vehicles.models import Vehicle
 
 
@@ -59,7 +62,34 @@ def shopkeeper_dashboard(request):
     if not profile:
         return render(request, "access_denied.html", {"message": "Shopkeeper profile is incomplete."}, status=403)
     vehicles = profile.vehicles.all()
-    return render(request, "shopkeeper_dashboard.html", {"profile": profile, "vehicles": vehicles})
+    bookings = Booking.objects.filter(vehicle__shopkeeper=profile).select_related("customer", "vehicle", "payment")
+    payments = PaymentTransaction.objects.filter(booking__vehicle__shopkeeper=profile).select_related(
+        "customer", "booking", "booking__vehicle"
+    )[:25]
+    paid_payments = PaymentTransaction.objects.filter(
+        booking__vehicle__shopkeeper=profile,
+        status=PaymentTransaction.Status.PAID,
+    )
+    stats = {
+        "vehicles": vehicles.count(),
+        "approved_vehicles": vehicles.filter(listing_status=Vehicle.ListingStatus.APPROVED).count(),
+        "pending_vehicles": vehicles.filter(listing_status=Vehicle.ListingStatus.PENDING).count(),
+        "available_vehicles": vehicles.filter(
+            listing_status=Vehicle.ListingStatus.APPROVED, is_available=True
+        ).count(),
+        "pending_bookings": bookings.filter(status=Booking.Status.PENDING).count(),
+        "confirmed_bookings": bookings.filter(status=Booking.Status.CONFIRMED).count(),
+        "completed_bookings": bookings.filter(status=Booking.Status.COMPLETED).count(),
+        "paid_bookings": paid_payments.count(),
+        "gross_earnings": paid_payments.aggregate(total=Sum("amount"))["total"] or 0,
+    }
+    return render(request, "shopkeeper_dashboard.html", {
+        "profile": profile,
+        "vehicles": vehicles,
+        "bookings": bookings,
+        "payments": payments,
+        "stats": stats,
+    })
 
 
 @login_required
@@ -72,8 +102,9 @@ def update_shopkeeper_profile(request):
         return JsonResponse({"ok": False, "message": "This shopkeeper account cannot be edited."}, status=403)
     name = " ".join(request.POST.get("shop_name", "").strip().split())
     address = " ".join(request.POST.get("shop_address", "").strip().split())
-    if len(name) < 2 or len(address) < 8:
-        return JsonResponse({"ok": False, "message": "Enter a valid shop name and complete address."}, status=400)
+    description = " ".join(request.POST.get("shop_description", "").strip().split())
+    if len(name) < 2 or len(address) < 8 or len(description) < 20:
+        return JsonResponse({"ok": False, "message": "Enter a shop name, complete address, and at least 20 characters describing your shop."}, status=400)
     try:
         latitude = Decimal(request.POST.get("latitude", "")) if request.POST.get("latitude") else None
         longitude = Decimal(request.POST.get("longitude", "")) if request.POST.get("longitude") else None
@@ -85,6 +116,7 @@ def update_shopkeeper_profile(request):
         return JsonResponse({"ok": False, "message": "Map coordinates are outside valid global limits."}, status=400)
     profile.shop_name = name
     profile.shop_address = address
+    profile.shop_description = description
     profile.latitude = latitude
     profile.longitude = longitude
     profile.google_place_id = request.POST.get("place_id", "").strip()[:255]

@@ -7,7 +7,7 @@ from .models import Vehicle
 class VehicleAdmin(admin.ModelAdmin):
     list_display = (
         "display_name", "registration_number", "shopkeeper", "vehicle_type",
-        "daily_rate", "listing_status", "is_available",
+        "quantity", "available_quantity", "daily_rate", "listing_status", "is_available",
     )
     list_filter = ("vehicle_type", "listing_status", "is_available")
     search_fields = ("brand", "model_name", "registration_number", "shopkeeper__shop_name")

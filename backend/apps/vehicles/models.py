@@ -25,12 +25,21 @@ class Vehicle(models.Model):
     manufacturing_year = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(1900), MaxValueValidator(2100)]
     )
+    body_style = models.CharField(max_length=40, default="standard", blank=True)
+    fuel_type = models.CharField(max_length=20, default="petrol")
+    fuel_capacity = models.DecimalField(max_digits=6, decimal_places=1, null=True, blank=True)
     daily_rate = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
     seating_capacity = models.PositiveSmallIntegerField(
         default=2, validators=[MinValueValidator(1), MaxValueValidator(100)]
     )
     description = models.TextField(blank=True)
     image = models.FileField(upload_to="vehicle-images/%Y/%m/", blank=True, null=True)
+    quantity = models.PositiveSmallIntegerField(
+        default=1, validators=[MinValueValidator(1), MaxValueValidator(999)]
+    )
+    available_quantity = models.PositiveSmallIntegerField(
+        default=1, validators=[MinValueValidator(0), MaxValueValidator(999)]
+    )
     is_available = models.BooleanField(default=True)
     listing_status = models.CharField(
         max_length=20, choices=ListingStatus.choices, default=ListingStatus.PENDING
@@ -44,6 +53,12 @@ class Vehicle(models.Model):
         indexes = [
             models.Index(fields=["vehicle_type", "listing_status", "is_available"]),
             models.Index(fields=["shopkeeper", "listing_status"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(available_quantity__lte=models.F("quantity")),
+                name="vehicle_available_units_lte_quantity",
+            ),
         ]
 
     def __str__(self):

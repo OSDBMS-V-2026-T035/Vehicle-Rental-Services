@@ -4,12 +4,14 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from apps.accounts.models import ShopkeeperProfile, User
+from apps.bookings.models import Booking
+from django.db import transaction
 from .models import Vehicle
 
 
@@ -20,7 +22,7 @@ def _distance_km(lat1, lon1, lat2, lon2):
     return radius * 2 * math.asin(math.sqrt(value))
 
 
-def _vehicle_payload(vehicle, distance=None):
+def _vehicle_payload(vehicle, distance=None, reserved_units=None):
     profile = vehicle.shopkeeper
     default_images = {
         "car": "/static/images/car.jpg",
@@ -29,6 +31,16 @@ def _vehicle_payload(vehicle, distance=None):
         "cycle": "/static/images/bicycle.jpg",
         "commercial": "/static/images/van.jpg",
     }
+    if reserved_units is None:
+        available_units = vehicle.available_quantity
+        availability_message = f"{available_units} of {vehicle.quantity} units available"
+    else:
+        available_units = max(0, vehicle.quantity - reserved_units)
+        availability_message = (
+            f"{available_units} of {vehicle.quantity} units available for these dates"
+            if available_units
+            else "Unavailable for these dates"
+        )
     result = {
         "id": vehicle.id,
         "name": vehicle.display_name,
@@ -38,6 +50,14 @@ def _vehicle_payload(vehicle, distance=None):
         "registration_number": vehicle.registration_number,
         "daily_rate": str(vehicle.daily_rate),
         "seating_capacity": vehicle.seating_capacity,
+        "body_style": vehicle.body_style,
+        "fuel_type": vehicle.fuel_type,
+        "fuel_capacity": str(vehicle.fuel_capacity or ""),
+        "quantity": vehicle.quantity,
+        "available_quantity": available_units,
+        "reserved_units": reserved_units or 0,
+        "availability_status": "AVAILABLE" if available_units > 0 else "UNAVAILABLE",
+        "availability_message": availability_message,
         "description": vehicle.description,
         "listing_status": vehicle.listing_status,
         "is_available": vehicle.is_available,
@@ -88,8 +108,13 @@ def create_vehicle(request):
             model_name=request.POST.get("model_name", "").strip(),
             registration_number=request.POST.get("registration_number", "").strip().upper(),
             manufacturing_year=int(request.POST.get("manufacturing_year", "0")),
+            body_style=request.POST.get("body_style", "standard").strip().lower(),
+            fuel_type=request.POST.get("fuel_type", "petrol").strip().lower(),
+            fuel_capacity=Decimal(request.POST.get("fuel_capacity", "0") or "0") or None,
             daily_rate=Decimal(request.POST.get("daily_rate", "0")),
             seating_capacity=int(request.POST.get("seating_capacity", "2")),
+            quantity=int(request.POST.get("quantity", "1")),
+            available_quantity=int(request.POST.get("quantity", "1")),
             description=request.POST.get("description", "").strip(),
             image=request.FILES.get("image"),
         )
@@ -107,6 +132,33 @@ def create_vehicle(request):
             message = str(exc)
         return JsonResponse({"ok": False, "message": message}, status=400)
     return JsonResponse({"ok": True, "message": "Vehicle submitted for admin approval.", "id": vehicle.id})
+
+
+@login_required
+@require_POST
+def remove_vehicle(request, vehicle_id):
+    """Archive a shopkeeper listing without destroying booking history."""
+    if request.user.role != User.Role.SHOPKEEPER:
+        return JsonResponse({"ok": False, "message": "Only shopkeepers can remove vehicles."}, status=403)
+    profile = getattr(request.user, "shopkeeper_profile", None)
+    if not profile:
+        return JsonResponse({"ok": False, "message": "Shopkeeper profile not found."}, status=403)
+    with transaction.atomic():
+        try:
+            vehicle = Vehicle.objects.select_for_update().get(pk=vehicle_id, shopkeeper=profile)
+        except Vehicle.DoesNotExist:
+            return JsonResponse({"ok": False, "message": "Vehicle not found in your fleet."}, status=404)
+        if Booking.objects.filter(
+            vehicle=vehicle,
+            status__in=[Booking.Status.PENDING, Booking.Status.CONFIRMED],
+            return_date__gte=timezone.localdate(),
+        ).exists():
+            return JsonResponse({"ok": False, "message": "Resolve current or upcoming bookings before removing this vehicle."}, status=409)
+        vehicle.is_available = False
+        vehicle.listing_status = Vehicle.ListingStatus.REJECTED
+        vehicle.admin_note = "Removed from marketplace by shopkeeper."
+        vehicle.save(update_fields=["is_available", "listing_status", "admin_note", "updated_at"])
+    return JsonResponse({"ok": True, "message": "Vehicle removed from your active fleet."})
 
 
 @login_required
@@ -134,20 +186,30 @@ def search_vehicles(request):
     vehicles = Vehicle.objects.filter(
         listing_status=Vehicle.ListingStatus.APPROVED,
         is_available=True,
+        quantity__gt=0,
         shopkeeper__verification_status=ShopkeeperProfile.VerificationStatus.VERIFIED,
         shopkeeper__user__is_active=True,
     ).select_related("shopkeeper")
     from django.utils.dateparse import parse_date
     pickup = parse_date(request.GET.get("pickup_date", "")) if request.GET.get("pickup_date") else None
     return_date = parse_date(request.GET.get("return_date", "")) if request.GET.get("return_date") else None
-    if pickup and return_date:
-        vehicles = vehicles.exclude(
-            bookings__status__in=["PENDING", "CONFIRMED"],
-            bookings__pickup_date__lte=return_date,
-            bookings__return_date__gte=pickup,
-        )
     if vehicle_type != "all":
         vehicles = vehicles.filter(vehicle_type=vehicle_type)
+    if pickup and return_date:
+        # Keep unavailable listings in the response so the customer sees a
+        # truthful "unavailable for these dates" card instead of a misleading
+        # empty search result. The booking transaction repeats this check with
+        # a row lock before creating a reservation.
+        vehicles = vehicles.annotate(
+            reserved_units=Count(
+                "bookings",
+                filter=Q(
+                    bookings__status__in=["PENDING", "CONFIRMED"],
+                    bookings__pickup_date__lte=return_date,
+                    bookings__return_date__gte=pickup,
+                ),
+            )
+        )
     matches = []
     for vehicle in vehicles:
         searchable = f"{vehicle.brand} {vehicle.model_name} {vehicle.shopkeeper.shop_name} {vehicle.shopkeeper.shop_address}".lower()
@@ -164,6 +226,12 @@ def search_vehicles(request):
                 radius = 25
             if distance > radius:
                 continue
-        matches.append(_vehicle_payload(vehicle, distance))
+        matches.append(_vehicle_payload(vehicle, distance, getattr(vehicle, "reserved_units", None)))
     matches.sort(key=lambda item: item.get("distance_km", 0))
-    return JsonResponse({"ok": True, "count": len(matches), "vehicles": matches[:100]})
+    visible = matches[:100]
+    return JsonResponse({
+        "ok": True,
+        "count": len(visible),
+        "available_count": sum(item["availability_status"] == "AVAILABLE" for item in visible),
+        "vehicles": visible,
+    })

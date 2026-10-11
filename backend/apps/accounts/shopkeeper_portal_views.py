@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models import Sum
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
@@ -40,12 +41,18 @@ def _shopkeeper_only(view):
 def shopkeeper_summary(request, profile):
     vehicles = profile.vehicles.all()
     bookings = Booking.objects.filter(vehicle__shopkeeper=profile)
-    return JsonResponse({"ok": True, "profile": {"shop_name": profile.shop_name, "shop_address": profile.shop_address, "latitude": str(profile.latitude or ""), "longitude": str(profile.longitude or ""), "verification_status": profile.verification_status, "email": request.user.email, "phone": request.user.phone_number}, "summary": {
+    paid = PaymentTransaction.objects.filter(
+        booking__vehicle__shopkeeper=profile,
+        status=PaymentTransaction.Status.PAID,
+    )
+    return JsonResponse({"ok": True, "profile": {"shop_name": profile.shop_name, "shop_address": profile.shop_address, "shop_description": profile.shop_description, "latitude": str(profile.latitude or ""), "longitude": str(profile.longitude or ""), "verification_status": profile.verification_status, "email": request.user.email, "phone": request.user.phone_number}, "summary": {
         "total_vehicles": vehicles.count(),
         "approved_vehicles": vehicles.filter(listing_status=Vehicle.ListingStatus.APPROVED).count(),
         "available_vehicles": vehicles.filter(listing_status=Vehicle.ListingStatus.APPROVED, is_available=True).count(),
         "pending_reservations": bookings.filter(status=Booking.Status.PENDING).count(),
         "paid_awaiting_action": PaymentTransaction.objects.filter(booking__vehicle__shopkeeper=profile, status=PaymentTransaction.Status.PAID, booking__status=Booking.Status.PENDING).count(),
+        "paid_bookings": paid.count(),
+        "gross_earnings": paid.aggregate(total=Sum("amount"))["total"] or 0,
     }})
 
 

@@ -5,6 +5,7 @@ import re
 from django.contrib.auth.decorators import login_required
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -13,6 +14,8 @@ from django.views.decorators.http import require_GET, require_POST
 from apps.accounts.models import User
 from apps.notifications.services import notify_user
 from apps.payments.models import PaymentTransaction
+from apps.adminpanel.models import AuditLog
+from apps.vehicles.models import Vehicle
 from .models import Booking
 from .services import create_checkout_booking, create_locked_booking
 from apps.accounts.models import phone_validator
@@ -155,3 +158,62 @@ def booking_history(request):
             for booking in bookings
         ],
     })
+
+
+@login_required
+@require_POST
+def shopkeeper_booking_action(request, booking_id):
+    """Confirm or cancel a booking belonging to the authenticated shopkeeper."""
+    if request.user.role != User.Role.SHOPKEEPER:
+        return JsonResponse({"ok": False, "message": "Shopkeeper access only."}, status=403)
+    profile = getattr(request.user, "shopkeeper_profile", None)
+    if not profile or profile.verification_status != "VERIFIED":
+        return JsonResponse({"ok": False, "message": "Admin verification is required first."}, status=403)
+    action = str(_payload(request).get("action", "")).lower()
+    if action not in {"confirm", "cancel"}:
+        return JsonResponse({"ok": False, "message": "Choose confirm or cancel."}, status=400)
+    with transaction.atomic():
+        try:
+            booking = Booking.objects.select_for_update().select_related("vehicle").get(
+                pk=booking_id, vehicle__shopkeeper=profile
+            )
+        except Booking.DoesNotExist:
+            return JsonResponse({"ok": False, "message": "Booking not found for this shop."}, status=404)
+        if booking.status in {Booking.Status.CANCELLED, Booking.Status.COMPLETED}:
+            return JsonResponse({"ok": False, "message": "This booking can no longer be changed."}, status=409)
+        booking.status = Booking.Status.CONFIRMED if action == "confirm" else Booking.Status.CANCELLED
+        booking.save(update_fields=["status", "updated_at"])
+        AuditLog.objects.create(
+            actor=request.user,
+            action=f"booking_{action}",
+            entity_type="booking",
+            entity_id=booking.id,
+            metadata={"vehicle_id": booking.vehicle_id, "customer_id": booking.customer_id},
+        )
+    return JsonResponse({"ok": True, "message": f"Booking {'confirmed' if action == 'confirm' else 'cancelled'} successfully."})
+
+
+@login_required
+@require_POST
+def shopkeeper_vehicle_availability(request, vehicle_id):
+    """Toggle a verified shopkeeper's vehicle without changing its listing approval."""
+    if request.user.role != User.Role.SHOPKEEPER:
+        return JsonResponse({"ok": False, "message": "Shopkeeper access only."}, status=403)
+    profile = getattr(request.user, "shopkeeper_profile", None)
+    if not profile or profile.verification_status != "VERIFIED":
+        return JsonResponse({"ok": False, "message": "Admin verification is required first."}, status=403)
+    with transaction.atomic():
+        try:
+            vehicle = Vehicle.objects.select_for_update().get(pk=vehicle_id, shopkeeper=profile)
+        except Vehicle.DoesNotExist:
+            return JsonResponse({"ok": False, "message": "Vehicle not found for this shop."}, status=404)
+        vehicle.is_available = not vehicle.is_available
+        vehicle.save(update_fields=["is_available", "updated_at"])
+        AuditLog.objects.create(
+            actor=request.user,
+            action="vehicle_availability_changed",
+            entity_type="vehicle",
+            entity_id=vehicle.id,
+            metadata={"is_available": vehicle.is_available},
+        )
+    return JsonResponse({"ok": True, "message": f"Vehicle marked {'available' if vehicle.is_available else 'unavailable'}."})
