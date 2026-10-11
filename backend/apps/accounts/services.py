@@ -69,6 +69,10 @@ def send_transactional_email(recipient, subject, title, preheader, body):
 
 
 def send_otp(contact, channel, purpose, request):
+    brevo_key = getattr(settings, "BREVO_API_KEY", "").strip()
+    brevo_sender = getattr(settings, "BREVO_SENDER_EMAIL", "").strip()
+    if not brevo_key or not brevo_sender:
+        raise ValueError("Brevo email delivery is not configured. Add BREVO_API_KEY and BREVO_SENDER_EMAIL to .env.")
     now = timezone.now()
     recent = OTPChallenge.objects.filter(contact=contact, channel=channel, purpose=purpose, created_at__gte=now - timedelta(hours=1))
     if recent.count() >= 5:
@@ -77,24 +81,36 @@ def send_otp(contact, channel, purpose, request):
         raise ValueError("Please wait a minute before requesting another OTP.")
     code = generate_code()
     challenge = OTPChallenge.objects.create(contact=contact, channel=channel, purpose=purpose, code_hash=make_password(code), expires_at=now + timedelta(minutes=10), request_ip=client_ip(request))
-    provider = "console"
     try:
         action = "reset your password" if purpose == OTPChallenge.Purpose.RESET else "verify your email"
         body = f'<p style="font-size:16px;line-height:1.6">Use this one-time code to {action}:</p><p style="font-size:32px;letter-spacing:8px;font-weight:800;color:#e4002b">{code}</p><p style="color:#6b7280">This code expires in 10 minutes and can only be used once.</p>'
         provider = send_transactional_email(contact, f"Your RideHub security code: {code}", "Your secure verification code", f"Your RideHub code is {code}. It expires in 10 minutes.", body)
-    except Exception:
-        logger.exception("OTP provider failed; retaining development fallback.")
-    logger.info("RideHub %s OTP requested for %s (provider=%s)", channel, contact, provider)
+        if provider != "brevo":
+            raise ValueError("Brevo email delivery is not available. Check the Brevo sender configuration in .env.")
+    except Exception as exc:
+        challenge.delete()
+        logger.exception("Brevo OTP delivery failed; the OTP challenge was removed.")
+        if isinstance(exc, ValueError):
+            raise
+        raise ValueError("Brevo could not send the OTP. Check the API key, verified sender, and network connection.") from exc
+    logger.info("RideHub %s OTP requested for %s (provider=brevo)", channel, contact)
     return challenge, provider, code
 
 
-def verify_otp(contact, channel, purpose, code):
+def check_otp(contact, channel, purpose, code):
     challenge = OTPChallenge.objects.filter(contact=contact, channel=channel, purpose=purpose, verified_at__isnull=True).first()
     if not challenge or challenge.is_expired:
         return False
     if challenge.attempts >= 5 or not check_password(code, challenge.code_hash):
         challenge.attempts += 1
         challenge.save(update_fields=["attempts"])
+        return False
+    return challenge
+
+
+def verify_otp(contact, channel, purpose, code):
+    challenge = check_otp(contact, channel, purpose, code)
+    if not challenge:
         return False
     challenge.verified_at = timezone.now()
     challenge.save(update_fields=["verified_at"])

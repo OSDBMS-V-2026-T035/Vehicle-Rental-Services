@@ -1,22 +1,22 @@
 # Authentication and location integrations
 
-The authentication flow is intentionally provider-optional. It works locally with
-Django's console OTP delivery, and switches to a real provider only when its
-environment variables are configured.
+Email OTP delivery uses Brevo. Signup and password reset do not fall back to a
+console or on-screen code, so an account is never marked as email-verified unless
+Brevo accepts the message.
 
 | Capability | Current implementation | Cost status |
 | --- | --- | --- |
-| Email OTP | Brevo API adapter, then Django SMTP fallback, then console OTP | Brevo currently has a free plan with a daily email limit; SMTP cost depends on the mailbox provider |
+| Email OTP | Brevo API adapter | Brevo currently has a free plan with a daily email limit; sender verification and an API key are required |
 | Phone number | Format and uniqueness validation only; no SMS provider is connected | No SMS cost because mobile OTP is intentionally disabled |
 | Current location | Browser `navigator.geolocation` | Free browser capability; it needs the user's permission |
 | Google Maps | Optional Places autocomplete, reverse geocoding, and coordinate capture; browser geolocation remains the fallback | Google Maps Platform requires an API key; standard production projects also require billing, while a no-cost demo key is available for prototyping |
 
 ## Environment setup
 
-Use `.env.example` as the starting point. For a local demo, leave provider keys
-empty and run Django in `DEBUG=True`; OTPs are printed by the console backend and
-the development UI shows the returned code. Never expose development OTPs when
-`DEBUG=False`.
+Use `.env.example` as the starting point. Add `BREVO_API_KEY`,
+`BREVO_SENDER_EMAIL`, and `BREVO_SENDER_NAME` to `.env`; the sender address must
+be verified in Brevo. If these values are missing or Brevo rejects the request,
+the UI shows a setup error and no fake OTP is displayed.
 
 For real email delivery, configure either the Django SMTP variables or
 `BREVO_API_KEY` plus `DEFAULT_FROM_EMAIL`. Mobile OTP is intentionally not part

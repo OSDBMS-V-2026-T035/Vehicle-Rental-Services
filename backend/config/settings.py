@@ -24,6 +24,9 @@ def _load_local_env(path):
             os.environ[key] = value
 
 
+# Support both the conventional hidden `.env` file and the `env` file used by
+# this workspace. Existing process variables still take precedence.
+_load_local_env(PROJECT_ROOT / "env")
 _load_local_env(PROJECT_ROOT / ".env")
 
 SECRET_KEY = os.getenv(
@@ -61,6 +64,7 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 MIDDLEWARE = [
+    "config.middleware.ApiDatabaseErrorMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",

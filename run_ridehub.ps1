@@ -165,8 +165,14 @@ if (-not $DemoOnly) {
             "user=vehicle_rental_user",
             "password=$appPassword"
         ) | Set-Content -Path $appDefaults -Encoding ascii
+        # MySQL writes authentication failures to stderr. In strict PowerShell
+        # mode that native stderr can abort the launcher before the repair popup.
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         & $mysqlExe "--defaults-extra-file=$appDefaults" --batch --skip-column-names -e "USE vehicle_rental; SELECT 1;" 2>$null
-        $databaseReady = $LASTEXITCODE -eq 0
+        $databaseExitCode = $LASTEXITCODE
+        $ErrorActionPreference = $previousErrorActionPreference
+        $databaseReady = $databaseExitCode -eq 0
     } finally {
         if (Test-Path $appDefaults) {
             Remove-Item -LiteralPath $appDefaults -Force

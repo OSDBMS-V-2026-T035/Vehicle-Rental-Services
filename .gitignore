@@ -35,6 +35,7 @@ staticfiles/
 
 # Environment files
 .env
+env
 
 # IDE and OS files
 .vscode/

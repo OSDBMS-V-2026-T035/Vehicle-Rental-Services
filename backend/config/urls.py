@@ -6,7 +6,7 @@ from django.contrib import admin
 from django.urls import path
 from django.views.generic import TemplateView
 
-from apps.accounts.views import auth_page, captcha_view, login_view, logout_view, password_reset_confirm_view, password_reset_otp_view, portal_view, send_otp_view, signup_view
+from apps.accounts.views import auth_page, captcha_view, login_view, logout_view, password_reset_confirm_view, password_reset_otp_view, portal_view, send_otp_view, signup_view, verify_signup_otp_view
 from apps.adminpanel.views import shopkeeper_action, user_action, vehicle_action
 from apps.bookings.views import booking_history, create_booking
 from apps.shops.views import search_shops, update_shopkeeper_profile
@@ -21,6 +21,7 @@ urlpatterns = [
     path("api/auth/logout/", logout_view, name="api-logout"),
     path("api/auth/signup/", signup_view, name="api-signup"),
     path("api/auth/send-otp/", send_otp_view, name="api-send-otp"),
+    path("api/auth/verify-otp/", verify_signup_otp_view, name="api-verify-signup-otp"),
     path("api/auth/password-reset/send-otp/", password_reset_otp_view, name="api-password-reset-otp"),
     path("api/auth/password-reset/confirm/", password_reset_confirm_view, name="api-password-reset-confirm"),
     path("control-panel/", portal_view, {"portal_role": "ADMIN"}, name="admin-portal"),

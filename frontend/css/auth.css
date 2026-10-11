@@ -16,12 +16,14 @@ a { color:inherit; text-decoration:none; }
 @media (max-width:980px) { .auth-layout { grid-template-columns:1fr; max-width:600px; padding-top:10px; }.auth-intro { max-width:600px; }.trust-row { margin-bottom:26px; }.role-cards { max-width:none; grid-template-columns:repeat(3,1fr); }.role-card { grid-template-columns:36px 1fr; padding:10px; }.role-card b { display:none; }.role-icon { width:34px; height:34px; font-size:17px; }.role-card strong { font-size:11px; }.role-card small { font-size:9px; } }
 @media (max-width:600px) { .auth-header,.auth-layout { width:calc(100% - 30px); }.auth-header { padding:17px 0; }.back-home { font-size:11px; }.auth-layout { gap:24px; padding-top:20px; }.auth-intro h1 { font-size:46px; }.auth-intro { padding-bottom:0; }.intro-copy { font-size:13px; }.trust-row { margin:20px 0 27px; font-size:9px; }.role-cards { grid-template-columns:1fr; gap:8px; }.role-card { grid-template-columns:38px 1fr 28px; padding:10px 12px; }.role-card b { display:grid; width:28px; height:28px; }.auth-panel { padding:20px 16px 17px; border-radius:15px; }.panel-heading h2 { font-size:18px; }.panel-heading p { font-size:10px; }.two-columns,.otp-row { grid-template-columns:1fr; }.otp-button { width:100%; }.password-rules { grid-template-columns:repeat(2,1fr); }.secure-label { display:none; } }
 
-.captcha-card { margin: 2px 0 4px; padding: 8px 10px 7px; border: 1px solid rgba(91,155,211,.38); border-radius: 9px; background: rgba(9,28,48,.64); }
-.captcha-heading { display:flex; justify-content:space-between; margin:0 0 6px; font-size:10px; font-weight:700; color:#cfe6fb; }
+.captcha-card { margin: 0 0 2px; padding: 10px 11px 9px; border: 1px solid rgba(91,155,211,.42); border-radius: 11px; background: linear-gradient(120deg,rgba(12,39,65,.84),rgba(9,25,43,.7)); box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
+.captcha-heading { display:flex; justify-content:space-between; align-items:center; margin:0 0 7px; font-size:10px; font-weight:700; color:#d9edff; }
+.captcha-heading b { display:inline-grid; place-items:center; width:16px; height:16px; margin-right:5px; border-radius:50%; color:#062b31; background:#65dcb9; font-size:10px; }
 .captcha-heading small { color:#8fa8c2; font-weight:500; }
 .captcha-row { display:grid; grid-template-columns:142px 34px minmax(0,1fr); gap:7px; align-items:start; }
-.captcha-row img { width:142px; height:40px; object-fit:cover; border-radius:6px; background:#102d4c; }
+.captcha-row img { width:142px; height:40px; object-fit:cover; border:1px solid rgba(141,207,255,.2); border-radius:7px; background:#102d4c; }
 .captcha-row button { width:34px; height:40px; border:1px solid #3b6090; border-radius:7px; background:rgba(20,54,92,.8); color:#a9d8ff; font-size:19px; cursor:pointer; }
+.captcha-row button:hover { border-color:#69bfff; color:#fff; background:rgba(33,82,132,.9); }
 .captcha-input { min-width:0; display:grid; gap:2px; }
 .captcha-card .input-control { min-height:40px; padding:0 9px; }
 .captcha-card .field-error { min-height:0; }
@@ -29,4 +31,20 @@ a { color:inherit; text-decoration:none; }
 
 
 @media (max-width:600px) { .captcha-row { grid-template-columns:112px 34px minmax(0,1fr); gap:6px; } .captcha-row img { width:112px; } }
+
+/* Keep the email-code actions visible on desktop and stacked on small screens. */
+.otp-row { grid-template-columns: 1fr 114px 94px; }
+.verify-otp-button:not(:disabled) { border-color:#48cfa9; color:#a7f5d7; background:rgba(31,146,112,.28); }
+@media (max-width:600px) { .otp-row { grid-template-columns:1fr; } .otp-row .otp-button { width:100%; } }
+
+/* Refined auth visual system: quieter borders, cleaner type, and no template-like divider lines. */
+body { font-family: "Segoe UI Variable", "Segoe UI", Inter, system-ui, -apple-system, sans-serif; letter-spacing: .005em; }
+.auth-panel { border-color: rgba(106, 164, 218, .22); box-shadow: 0 24px 70px rgba(0,0,0,.28); }
+.signup-progress { gap: 8px; margin-top: 2px; }
+.signup-progress i { display: none; }
+.progress-step { padding: 5px 8px; border: 1px solid rgba(111,159,202,.16); border-radius: 999px; background: rgba(20,43,68,.42); }
+.progress-step.active { border-color: rgba(104,190,255,.48); background: rgba(36,112,186,.2); }
+.input-control { border-color: rgba(103,145,184,.34); border-radius: 10px; }
+.input-control input, .auth-tab, .otp-button, .submit-button { letter-spacing: .01em; }
+.captcha-card { margin-top: 2px; border-color: rgba(103,168,218,.3); background: rgba(10,28,47,.68); }
 

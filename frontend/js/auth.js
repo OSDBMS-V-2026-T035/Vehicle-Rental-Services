@@ -31,6 +31,18 @@ function csrfToken() {
     return document.cookie.split('; ').find((row) => row.startsWith('csrftoken='))?.split('=')[1] || '';
 }
 
+async function readApiResponse(response) {
+    const raw = await response.text();
+    if (!raw.trim()) return {};
+    try {
+        return JSON.parse(raw);
+    } catch {
+        throw new Error(response.status >= 500
+            ? 'The server could not complete this request. Check the database/server configuration.'
+            : 'The server returned an invalid response. Please try again.');
+    }
+}
+
 function setRole(role) {
     page.dataset.role = role;
     document.querySelectorAll('[data-role-button]').forEach((button) => button.classList.toggle('active', button.dataset.roleButton === role));
@@ -89,6 +101,19 @@ document.querySelector('#signup-password').addEventListener('input', (event) => 
 function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value); }
 function validPhone(value) { return /^[6-9]\d{9}$/.test(value); }
 function validPassword(value) { return Object.values(passwordRules(value)).every(Boolean); }
+let emailVerified = false;
+let otpRequested = false;
+
+function setEmailVerified(value) {
+    emailVerified = value;
+    const verifyButton = document.querySelector('#verify-email-otp-button');
+    const otpInput = document.querySelector('#email-otp');
+    if (verifyButton) verifyButton.disabled = value || !otpRequested || !/^\d{6}$/.test(otpInput?.value.trim() || '');
+    if (otpInput) otpInput.readOnly = value;
+}
+
+document.querySelector('#signup-email').addEventListener('input', () => { otpRequested = false; setEmailVerified(false); });
+document.querySelector('#email-otp').addEventListener('input', () => setEmailVerified(false));
 
 async function sendOtp(button) {
     const channel = button.dataset.otpChannel;
@@ -96,19 +121,43 @@ async function sendOtp(button) {
     clearErrors();
     if (!validEmail(contact)) return setError('signup-email', 'Enter a valid email before requesting the OTP.');
     button.disabled = true;
+    setEmailVerified(false);
     try {
-        const response = await fetch('/api/auth/send-otp/', { method: 'POST', headers: {'Content-Type':'application/json', 'X-CSRFToken': csrfToken()}, body: JSON.stringify({ channel, contact, ...captchaPayload() }) });
-        const data = await response.json();
+        const response = await fetch('/api/auth/send-otp/', { method: 'POST', headers: {'Content-Type':'application/json', 'X-CSRFToken': csrfToken()}, body: JSON.stringify({ channel, contact }) });
+        const data = await readApiResponse(response);
         if (!response.ok) throw new Error(data.message || 'OTP could not be sent.');
         showMessage(data.message, 'success');
+        otpRequested = true;
+        setEmailVerified(false);
         placeCaptcha();
-        refreshCaptcha();
         let seconds = 60;
         const original = button.textContent;
         const timer = setInterval(() => { seconds -= 1; button.textContent = `${seconds}s`; if (seconds <= 0) { clearInterval(timer); button.disabled = false; button.textContent = original; } }, 1000);
-    } catch (error) { showMessage(error.message, 'error'); button.disabled = false; }
+    } catch (error) { showMessage(error.message, 'error'); button.disabled = false; refreshCaptcha(); }
 }
 document.querySelectorAll('[data-otp-channel]').forEach((button) => button.addEventListener('click', () => sendOtp(button)));
+
+document.querySelector('#verify-email-otp-button').addEventListener('click', async (event) => {
+    const email = document.querySelector('#signup-email').value.trim();
+    const otp = document.querySelector('#email-otp').value.trim();
+    if (!validEmail(email)) return setError('signup-email', 'Enter a valid email address first.');
+    if (!/^\d{6}$/.test(otp)) return setError('email-otp', 'Enter the six-digit OTP from your email.');
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+        const response = await fetch('/api/auth/verify-otp/', {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken()}, body:JSON.stringify({channel:'EMAIL', contact:email, otp})});
+        const data = await readApiResponse(response);
+        if (!response.ok) throw new Error(data.message || 'OTP verification failed.');
+        setEmailVerified(true);
+        showMessage(data.message, 'success');
+    } catch (error) {
+        setEmailVerified(false);
+        if (/security code|captcha/i.test(error.message)) {
+            setError('captcha-answer', error.message);
+            document.querySelector('#captcha-answer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else showMessage(error.message, 'error');
+    }
+});
 
 document.querySelector('#login-form').addEventListener('submit', async (event) => {
     event.preventDefault(); clearErrors();
@@ -133,7 +182,7 @@ document.querySelector('#signup-form').addEventListener('submit', async (event) 
     if (!validPhone(phone)) { setError('signup-phone', 'Use exactly 10 digits beginning with 6, 7, 8, or 9.'); valid = false; }
     if (!validPassword(password)) { setError('signup-password', 'Meet all password rules shown below.'); valid = false; }
     if (password !== confirmPassword) { setError('confirm-password', 'Passwords do not match.'); valid = false; }
-    if (!document.querySelector('#email-otp').value.trim()) { setError('email-otp', 'Verify your email first.'); valid = false; }
+    if (!emailVerified) { setError('email-otp', 'Click Verify OTP after entering the email code.'); valid = false; }
     if (page.dataset.role === 'SHOPKEEPER') { if (document.querySelector('#shop-name').value.trim().length < 2) { setError('shop-name', 'Shop name is required.'); valid = false; } if (document.querySelector('#shop-address').value.trim().length < 8) { setError('shop-address', 'Enter a complete shop address.'); valid = false; } }
     if (!document.querySelector('#terms').checked) { setError('terms', 'Accept the terms to continue.'); valid = false; }
     if (!valid) return;
@@ -145,7 +194,7 @@ async function submitAuth(url, body) {
     button.disabled = true;
     try {
         const response = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken()}, body:JSON.stringify(body) });
-        const data = await response.json();
+        const data = await readApiResponse(response);
         if (!response.ok) throw new Error(data.message || 'Please review the form and try again.');
         showMessage(data.message, 'success');
         showToast(data.message);
@@ -187,7 +236,7 @@ document.querySelector('#reset-otp-button').addEventListener('click', async (eve
     const button = event.currentTarget; clearErrors();
     try {
         const response = await fetch('/api/auth/password-reset/send-otp/', {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken()}, body:JSON.stringify({email, ...captchaPayload()})});
-        const data = await response.json(); if (!response.ok) throw new Error(data.message);
+        const data = await readApiResponse(response); if (!response.ok) throw new Error(data.message);
         showMessage(data.message, 'success'); placeCaptcha(); refreshCaptcha(); cooldown(button);
     } catch (error) { showMessage(error.message, 'error'); }
 });
@@ -199,22 +248,24 @@ document.querySelector('#reset-form').addEventListener('submit', async (event) =
     const button = document.querySelector('#reset-form .submit-button'); button.disabled = true;
     try {
         const response = await fetch('/api/auth/password-reset/confirm/', {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken()}, body:JSON.stringify({email, otp, password, confirm_password, ...captchaPayload()})});
-        const data = await response.json(); if (!response.ok) throw new Error(data.message);
+        const data = await readApiResponse(response); if (!response.ok) throw new Error(data.message);
         showMessage(data.message, 'success'); setTimeout(() => resetMode(false), 1200);
     } catch (error) { showMessage(error.message, 'error'); } finally { button.disabled = false; placeCaptcha();
 refreshCaptcha(); }
 });
 
 let captchaId = '';
+let captchaReady = false;
 async function refreshCaptcha() {
     const image = document.querySelector('#captcha-image');
     const answer = document.querySelector('#captcha-answer');
+    captchaReady = false;
     try {
         const response = await fetch('/api/auth/captcha/', {method: 'POST', headers: {'X-CSRFToken': csrfToken()}});
-        const data = await response.json();
+        const data = await readApiResponse(response);
         if (!response.ok) throw new Error('Security code could not load.');
-        captchaId = data.captcha_id; image.src = data.image; answer.value = ''; answer.focus();
-    } catch (error) { showMessage(error.message, 'error'); }
+        captchaId = data.captcha_id; image.src = data.image; answer.value = ''; captchaReady = true;
+    } catch (error) { captchaId = ''; showMessage(error.message, 'error'); }
 }
 function captchaPayload() { return {captcha_id: captchaId, captcha_answer: document.querySelector('#captcha-answer').value.trim().toUpperCase()}; }
 document.querySelector('#captcha-refresh').addEventListener('click', refreshCaptcha);

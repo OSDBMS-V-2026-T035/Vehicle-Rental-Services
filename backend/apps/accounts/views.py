@@ -2,7 +2,6 @@ import json
 import re
 from decimal import Decimal, InvalidOperation
 
-from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
@@ -15,7 +14,7 @@ from django.views.decorators.http import require_POST
 
 from .models import OTPChallenge, ShopkeeperProfile, User, phone_validator
 from .captcha import create_captcha, verify_captcha
-from .services import normalize_contact, send_otp, verify_otp
+from .services import check_otp, normalize_contact, send_otp, verify_otp
 from apps.notifications.services import notify_signup_success, notify_user
 
 def _captcha_error(payload):
@@ -104,8 +103,6 @@ def auth_page(request):
 @require_POST
 def send_otp_view(request):
     payload = _payload(request)
-    captcha_error = _captcha_error(payload)
-    if captcha_error: return captcha_error
     channel = str(payload.get("channel", "")).upper()
     if channel != OTPChallenge.Channel.EMAIL:
         return _error("Only email OTP verification is available.")
@@ -114,7 +111,29 @@ def send_otp_view(request):
         _, provider, _ = send_otp(contact, channel, OTPChallenge.Purpose.SIGNUP, request)
     except (ValidationError, ValueError) as exc:
         return _error(exc.messages[0] if hasattr(exc, "messages") else str(exc))
-    return JsonResponse({"ok": True, "message": f"A verification code was sent to {_mask_email(contact)}. A new security code is now displayed below—enter it before creating your account.", "provider": provider})
+    return JsonResponse({
+        "ok": True,
+        "message": f"A verification code was sent to {_mask_email(contact)}. Enter it before creating your account.",
+        "provider": provider,
+    })
+
+
+@require_POST
+def verify_signup_otp_view(request):
+    payload = _payload(request)
+    if str(payload.get("channel", "")).upper() != OTPChallenge.Channel.EMAIL:
+        return _error("Only email OTP verification is available.")
+    try:
+        email = _clean_email(payload.get("contact"))
+    except ValidationError as exc:
+        return _error(exc.messages[0], field="signup-email")
+    code = str(payload.get("otp") or "").strip()
+    if not re.fullmatch(r"\d{6}", code):
+        return _error("Enter the six-digit email OTP.", field="email_otp")
+    if not check_otp(email, OTPChallenge.Channel.EMAIL, OTPChallenge.Purpose.SIGNUP, code):
+        return _error("The email OTP is incorrect, expired, or has reached its attempt limit.", field="email_otp")
+    request.session["signup_verified_email"] = email
+    return JsonResponse({"ok": True, "message": "Email verified. You can now create your RideHub account."})
 
 
 @require_POST
@@ -153,6 +172,8 @@ def signup_view(request):
         captcha_error = _captcha_error(payload)
         if captcha_error: return captcha_error
 
+        if request.session.get("signup_verified_email") != email:
+            return _error("Click Verify OTP after entering the code sent to this email.", field="email_otp")
         if not verify_otp(email, OTPChallenge.Channel.EMAIL, OTPChallenge.Purpose.SIGNUP, str(payload.get("email_otp") or "")):
             return _error("Email OTP is missing, incorrect, or expired.", field="email_otp")
 
@@ -177,6 +198,7 @@ def signup_view(request):
                     longitude=shop_longitude,
                     google_place_id=shop_place_id,
                 )
+            request.session.pop("signup_verified_email", None)
     except (ValidationError, IntegrityError) as exc:
         if isinstance(exc, IntegrityError):
             return _error("That email or phone number is already registered.", status=409)

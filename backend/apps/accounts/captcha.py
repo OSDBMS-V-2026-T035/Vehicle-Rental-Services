@@ -30,6 +30,10 @@ def verify_captcha(challenge_id, answer):
     challenge = CaptchaChallenge.objects.filter(challenge_id=str(challenge_id or ""), used_at__isnull=True).first()
     if not challenge or challenge.expires_at <= timezone.now():
         return False
-    challenge.used_at = timezone.now()
-    challenge.save(update_fields=["used_at"])
-    return bool(answer) and check_password(str(answer).strip().upper(), challenge.answer_hash)
+    is_valid = bool(answer) and check_password(str(answer).strip().upper(), challenge.answer_hash)
+    # Consume a CAPTCHA only after a successful match. This allows a user to
+    # correct a typo without being forced to request another challenge.
+    if is_valid:
+        challenge.used_at = timezone.now()
+        challenge.save(update_fields=["used_at"])
+    return is_valid
