@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
@@ -134,6 +135,15 @@ def search_vehicles(request):
         shopkeeper__verification_status=ShopkeeperProfile.VerificationStatus.VERIFIED,
         shopkeeper__user__is_active=True,
     ).select_related("shopkeeper")
+    from django.utils.dateparse import parse_date
+    pickup = parse_date(request.GET.get("pickup_date", "")) if request.GET.get("pickup_date") else None
+    return_date = parse_date(request.GET.get("return_date", "")) if request.GET.get("return_date") else None
+    if pickup and return_date:
+        vehicles = vehicles.exclude(
+            bookings__status__in=["PENDING", "CONFIRMED"],
+            bookings__pickup_date__lte=return_date,
+            bookings__return_date__gte=pickup,
+        )
     if vehicle_type != "all":
         vehicles = vehicles.filter(vehicle_type=vehicle_type)
     matches = []

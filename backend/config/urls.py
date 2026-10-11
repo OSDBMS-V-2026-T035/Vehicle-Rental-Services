@@ -8,7 +8,7 @@ from django.views.generic import TemplateView
 
 from apps.accounts.views import auth_page, captcha_view, login_view, logout_view, password_reset_confirm_view, password_reset_otp_view, portal_view, send_otp_view, signup_view, verify_signup_otp_view
 from apps.adminpanel.views import shopkeeper_action, user_action, vehicle_action
-from apps.bookings.views import booking_history, create_booking
+from apps.bookings.views import booking_history, create_booking, create_checkout_booking_view
 from apps.shops.views import search_shops, update_shopkeeper_profile
 from apps.vehicles.views import create_vehicle, my_vehicles, search_vehicles
 
@@ -36,6 +36,7 @@ urlpatterns = [
     path("api/shops/search/", search_shops, name="shops-search"),
     path("api/vehicles/search/", search_vehicles, name="vehicles-search"),
     path("api/bookings/", create_booking, name="booking-create"),
+    path("api/bookings/checkout/", create_checkout_booking_view, name="booking-checkout"),
     path("api/bookings/history/", booking_history, name="booking-history"),
     path("admin/", admin.site.urls),
 ]

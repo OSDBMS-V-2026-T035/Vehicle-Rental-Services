@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap');
 :root {
     --bg: #060b12;
     --surface: #0d1521;
@@ -16,6 +17,7 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; color: var(--text); background: var(--bg); font-family: 'DM Sans', Arial, sans-serif; line-height: 1.5; }
+h1, h2, h3, h4, .brand strong, .button { font-family: 'Manrope', 'DM Sans', Arial, sans-serif; }
 button, input, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }

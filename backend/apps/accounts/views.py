@@ -72,6 +72,7 @@ def _clean_coordinate(value, minimum, maximum, field_name):
     return coordinate
 
 
+@ensure_csrf_cookie
 def portal_view(request, portal_role):
     """Render role-specific placeholders while the real portals are being built."""
     if not request.user.is_authenticated:
@@ -93,6 +94,9 @@ def portal_view(request, portal_role):
         "user_name": request.user.get_full_name() or request.user.email,
         "role_label": request.user.get_role_display(),
         "portal_role": portal_role,
+        "user_email": request.user.email,
+        "user_phone": request.user.phone_number,
+        "user_email_verified": request.user.is_email_verified,
     })
 
 @ensure_csrf_cookie
