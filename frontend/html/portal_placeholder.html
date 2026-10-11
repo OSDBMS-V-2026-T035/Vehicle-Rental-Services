@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="RideHub {{ role_label }} portal">
   <title>{{ portal_title }} | RideHub</title>
-  <link rel="stylesheet" href="{% static 'css/portal.css' %}?v=20261011">
+  <link rel="stylesheet" href="{% static 'css/portal.css' %}?v=20261011-2">
   {% if portal_role == 'USER' %}<link rel="stylesheet" href="{% static 'css/user-portal.css' %}?v=20261011-3">{% endif %}
 </head>
 <body class="portal-page{% if portal_role == 'USER' %} user-portal-page{% endif %}" data-role="{{ portal_role }}" data-google-maps-key="{{ GOOGLE_MAPS_API_KEY|default:'' }}">
@@ -29,9 +29,9 @@
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <script src="{% static 'js/user-portal.js' %}?v=20261011-3"></script>
   {% elif portal_role == 'SHOPKEEPER' %}
-    <script src="{% static 'js/shopkeeper-portal.js' %}?v=20261011"></script>
+    <script src="{% static 'js/shopkeeper-portal.js' %}?v=20261011-2"></script>
   {% elif portal_role == 'ADMIN' %}
-    <script src="{% static 'js/admin-portal.js' %}?v=20261011"></script>
+    <script src="{% static 'js/admin-portal.js' %}?v=20261011-2"></script>
   {% else %}
     <script src="{% static 'js/portal.js' %}?v=20261011"></script>
   {% endif %}
