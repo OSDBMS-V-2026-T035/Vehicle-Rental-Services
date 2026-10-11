@@ -1,36 +1,29 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="RideHub {{ role_label }} portal">
   <title>{{ portal_title }} | RideHub</title>
-  <style>
-    :root { color-scheme: dark; font-family: Inter, Arial, sans-serif; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top left,#155da5 0%,transparent 34%), linear-gradient(135deg,#071525,#102d4c); color:#f4f9ff; }
-    main { width:min(680px,100%); padding:48px; border:1px solid #2b6599; border-radius:24px; background:rgba(9,28,49,.88); box-shadow:0 24px 80px rgba(0,0,0,.34); text-align:center; }
-    .brand { margin:0 0 34px; font-size:14px; font-weight:800; letter-spacing:3px; color:#78c6ff; }
-    .icon { width:76px; height:76px; margin:0 auto 24px; border-radius:22px; display:grid; place-items:center; background:linear-gradient(135deg,#238cff,#734dff); font-size:32px; box-shadow:0 14px 34px rgba(35,140,255,.28); }
-    .eyebrow { margin:0 0 10px; color:#7fcaff; font-size:12px; font-weight:800; letter-spacing:2px; }
-    h1 { margin:0; font-size:clamp(30px,5vw,48px); }
-    .subtitle { margin:14px 0 0; color:#c3d7e9; font-size:18px; }
-    .status { margin:34px auto 18px; padding:16px 20px; max-width:460px; border:1px solid #285b86; border-radius:14px; background:#0a2139; color:#dbeeff; line-height:1.55; }
-    .tag { display:inline-block; margin-bottom:10px; padding:6px 10px; border-radius:999px; background:#173f66; color:#8ed1ff; font-size:11px; font-weight:800; letter-spacing:1px; }
-    .user { margin:24px 0 0; color:#8ca4bb; font-size:14px; }
-    a { display:inline-block; margin-top:28px; padding:12px 20px; border-radius:10px; color:#dff1ff; text-decoration:none; background:#1a65ae; font-weight:700; }
-    a:hover { background:#2580d7; }
-  </style>
+  <link rel="stylesheet" href="{% static 'css/portal.css' %}?v=20261011">
 </head>
-<body>
-  <main>
-    <p class="brand">RIDEHUB</p>
-    <div class="icon">◈</div>
-    <p class="eyebrow">{{ role_label|upper }} ACCESS</p>
-    <h1>{{ portal_title }}</h1>
-    <p class="subtitle">{{ portal_subtitle }}</p>
-    <div class="status"><span class="tag">UNDER DEVELOPMENT</span><br>{{ portal_description }}</div>
-    <p class="user">Signed in as {{ user_name }}</p>
-    <a href="/auth/">Return to sign in</a>
-  </main>
+<body class="portal-page" data-role="{{ portal_role }}">
+  <div class="portal-noise"></div>
+  <div class="portal-layout">
+    <aside class="portal-sidebar" id="portal-sidebar">
+      <a class="portal-brand" href="/" aria-label="RideHub home"><span class="portal-brand-mark">R</span><span><strong>RideHub</strong><small>MOVE FREELY. LIVE MORE.</small></span></a>
+      <div class="portal-role"><span class="role-orb">✦</span><div><small>{{ role_label }} SPACE</small><strong>{{ portal_title }}</strong></div></div>
+      <nav class="portal-nav" id="portal-nav" aria-label="Portal navigation"></nav>
+      <div class="sidebar-bottom"><div class="account-mini"><span class="avatar">{{ user_name|slice:':1'|upper }}</span><div><strong>{{ user_name }}</strong><small>{{ role_label }}</small></div><button class="icon-button" id="profile-shortcut" title="Profile">⋮</button></div><button class="logout-button" id="logout-button"><span>↗</span> Log out</button></div>
+    </aside>
+    <main class="portal-main">
+      <header class="portal-topbar"><button class="mobile-menu" id="mobile-menu" aria-label="Open menu">☰</button><div class="crumb"><span id="crumb-label">Overview</span><small>{{ role_label }} portal</small></div><div class="top-actions"><button class="top-icon" data-coming-soon="Notifications are under development." aria-label="Notifications">♢<i></i></button><button class="top-icon" data-coming-soon="Help centre is under development." aria-label="Help">?</button><span class="header-avatar">{{ user_name|slice:':1'|upper }}</span></div></header>
+      <section class="portal-content" id="portal-content" aria-live="polite"></section>
+    </main>
+  </div>
+  <div class="portal-toast" id="portal-toast" role="status"></div>
+  <script>window.RIDEHUB_PORTAL={role:"{{ portal_role }}",name:"{{ user_name|escapejs }}",label:"{{ role_label|escapejs }}",csrf:"{{ csrf_token }}"};</script>
+  <script src="{% static 'js/portal.js' %}?v=20261011"></script>
 </body>
 </html>

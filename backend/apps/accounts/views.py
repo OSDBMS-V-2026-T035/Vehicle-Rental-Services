@@ -93,6 +93,7 @@ def portal_view(request, portal_role):
         "portal_description": description,
         "user_name": request.user.get_full_name() or request.user.email,
         "role_label": request.user.get_role_display(),
+        "portal_role": portal_role,
     })
 
 @ensure_csrf_cookie
@@ -284,12 +285,3 @@ def logout_view(request):
 @require_POST
 def captcha_view(request):
     return JsonResponse(create_captcha())
-
-
-
-
-
-
-
-
-
