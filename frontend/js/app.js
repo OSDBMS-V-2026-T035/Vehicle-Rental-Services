@@ -25,6 +25,54 @@ document.querySelectorAll('.main-nav a').forEach((link) => {
     });
 });
 
+const heroModeButtons = document.querySelectorAll('[data-hero-mode]');
+const heroImages = document.querySelectorAll('.hero-visual img[data-car-src][data-bike-src]');
+const heroModeContent = {
+    car: {
+        title: 'Find your fit.',
+        copy: 'Cars for city drives and weekend escapes',
+        label: 'FEATURED CAR',
+        previews: ['Weekend drives', 'City-ready cars'],
+        alts: ['Car available for local rental', 'Car on a scenic road', 'Car available to rent'],
+    },
+    bike: {
+        title: 'Take the long way.',
+        copy: 'Two-wheelers made for open roads and quick city rides',
+        label: 'FEATURED BIKE',
+        previews: ['Cruise beyond town', 'Easy city rides'],
+        alts: ['Motorcycle available for local rental', 'Motorcycle ready for a weekend ride', 'Scooter available to rent'],
+    },
+};
+
+heroModeButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+        const mode = button.dataset.heroMode;
+        const content = heroModeContent[mode];
+        if (!content) return;
+        heroModeButtons.forEach((option) => {
+            const selected = option === button;
+            option.classList.toggle('is-active', selected);
+            option.setAttribute('aria-pressed', String(selected));
+        });
+        document.querySelector('.hero-visual').dataset.vehicleMode = mode;
+        heroImages.forEach((image, index) => {
+            image.classList.add('is-transitioning');
+            window.setTimeout(() => {
+                if (document.querySelector('.hero-visual').dataset.vehicleMode !== mode) return;
+                image.src = image.dataset[`${mode}Src`];
+                image.alt = content.alts[index];
+                image.classList.remove('is-transitioning');
+            }, 180);
+        });
+        document.querySelector('#hero-caption-title').textContent = content.title;
+        document.querySelector('#hero-caption-copy').textContent = content.copy;
+        document.querySelector('#hero-image-label').textContent = content.label;
+        document.querySelector('#hero-image-number').textContent = mode === 'car' ? '01' : '02';
+        document.querySelector('#hero-preview-one-label').textContent = content.previews[0];
+        document.querySelector('#hero-preview-two-label').textContent = content.previews[1];
+    });
+});
+
 let searchMode = 'rent';
 document.querySelectorAll('.search-tab').forEach((button) => {
     button.addEventListener('click', () => {
@@ -67,30 +115,15 @@ function setDateMessage(text = '') {
     message.style.color = text ? '#ff9d9d' : '#71c5ff';
 }
 
-function validateDates(trip) {
+function validateDates() {
     if (!pickupDate.value) return 'Please select a pickup date.';
     if (pickupDate.value < today) return 'Pickup date cannot be in the past.';
-    if (trip === 'one-way') return '';
     if (!returnDate.value) return 'Please select a return date.';
     if (returnDate.value < today) return 'Return date cannot be in the past.';
     if (returnDate.value < pickupDate.value) return 'Return date must be on or after the pickup date.';
     if (returnDate.value > dateAfter(pickupDate.value, 7)) return 'Return date cannot be more than 7 days after pickup.';
     return '';
 }
-
-document.querySelectorAll('.trip-option').forEach((button) => {
-    button.addEventListener('click', () => {
-        document.querySelectorAll('.trip-option').forEach((option) => option.classList.remove('active'));
-        button.classList.add('active');
-        const oneWay = button.dataset.trip === 'one-way';
-        document.querySelector('.return-field').style.opacity = oneWay ? '.45' : '1';
-        returnDate.required = !oneWay;
-        returnDate.disabled = oneWay;
-        if (oneWay) returnDate.value = '';
-        syncDateConstraints();
-        setDateMessage();
-    });
-});
 
 syncDateConstraints();
 pickupDate.addEventListener('change', () => {
@@ -142,8 +175,7 @@ async function loadLiveResults(type, location) {
 
 form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const trip = document.querySelector('.trip-option.active').dataset.trip;
-    const dateError = validateDates(trip);
+    const dateError = validateDates();
     if (dateError) {
         setDateMessage(dateError);
         return;
