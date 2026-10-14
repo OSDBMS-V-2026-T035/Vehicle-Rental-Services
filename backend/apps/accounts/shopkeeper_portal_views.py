@@ -73,6 +73,8 @@ def shopkeeper_reservations(request, profile):
 @_shopkeeper_only
 @require_POST
 def shopkeeper_reservation_action(request, profile, booking_id):
+    if profile.verification_status != ShopkeeperProfile.VerificationStatus.VERIFIED:
+        return JsonResponse({"ok": False, "message": "One-time admin verification is required before managing reservations."}, status=403)
     action = str(_payload(request).get("action") or "").upper()
     if action not in {"CONFIRM", "DECLINE"}:
         return JsonResponse({"ok": False, "message": "Choose a valid reservation action."}, status=400)
@@ -106,6 +108,8 @@ def shopkeeper_reservation_action(request, profile, booking_id):
 @_shopkeeper_only
 @require_POST
 def set_vehicle_availability(request, profile, vehicle_id):
+    if profile.verification_status != ShopkeeperProfile.VerificationStatus.VERIFIED:
+        return JsonResponse({"ok": False, "message": "One-time admin verification is required before managing vehicle availability."}, status=403)
     available = _payload(request).get("is_available")
     if not isinstance(available, bool):
         return JsonResponse({"ok": False, "message": "Choose a valid availability value."}, status=400)
@@ -126,6 +130,8 @@ def set_vehicle_availability(request, profile, vehicle_id):
 @_shopkeeper_only
 @require_POST
 def update_vehicle_rate(request, profile, vehicle_id):
+    if profile.verification_status != ShopkeeperProfile.VerificationStatus.VERIFIED:
+        return JsonResponse({"ok": False, "message": "One-time admin verification is required before changing fares."}, status=403)
     try:
         daily_rate = Decimal(str(_payload(request).get("daily_rate", "")))
     except (InvalidOperation, ValueError):

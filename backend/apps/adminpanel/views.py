@@ -75,16 +75,22 @@ def shopkeeper_action(request, profile_id):
         "approve": ShopkeeperProfile.VerificationStatus.VERIFIED,
         "reject": ShopkeeperProfile.VerificationStatus.REJECTED,
         "revoke": ShopkeeperProfile.VerificationStatus.REVOKED,
+        "permanent_ban": ShopkeeperProfile.VerificationStatus.REVOKED,
     }
     if action not in status_by_action:
-        return JsonResponse({"ok": False, "message": "Choose approve, reject, or revoke."}, status=400)
+        return JsonResponse({"ok": False, "message": "Choose approve, reject, revoke, or permanent ban."}, status=400)
+    if action == "approve" and profile.user.is_permanently_banned:
+        return JsonResponse({"ok": False, "message": "A permanently banned shopkeeper cannot be re-approved."}, status=409)
     with transaction.atomic():
         profile.verification_status = status_by_action[action]
         profile.user.is_active = action != "revoke"
-        profile.user.save(update_fields=["is_active", "updated_at"])
+        if action == "permanent_ban":
+            profile.user.is_active = False
+            profile.user.is_permanently_banned = True
+        profile.user.save(update_fields=["is_active", "is_permanently_banned", "updated_at"])
         profile.save(update_fields=["verification_status", "updated_at"])
         AuditLog.objects.create(actor=request.user, action=f"shopkeeper_{action}", entity_type="shopkeeper", entity_id=profile.id, metadata={"email": profile.user.email})
-    label = {"approve": "approved", "reject": "rejected", "revoke": "revoked"}[action]
+    label = {"approve": "approved", "reject": "rejected", "revoke": "revoked", "permanent_ban": "permanently banned"}[action]
     notify_user(profile.user, f"Shopkeeper account {label}", f"Your shopkeeper account for {profile.shop_name} was {label} by the RideHub review team.")
     return JsonResponse({"ok": True, "message": f"Shopkeeper {label} successfully."})
 
@@ -114,14 +120,21 @@ def user_action(request, user_id):
     if user == request.user:
         return JsonResponse({"ok": False, "message": "You cannot revoke your own admin account."}, status=400)
     action = _payload(request).get("action", "").lower()
-    if action not in {"revoke", "restore"}:
-        return JsonResponse({"ok": False, "message": "Choose revoke or restore."}, status=400)
+    if action not in {"revoke", "restore", "permanent_ban"}:
+        return JsonResponse({"ok": False, "message": "Choose revoke, restore, or permanent ban."}, status=400)
+    if action == "restore" and user.is_permanently_banned:
+        return JsonResponse({"ok": False, "message": "A permanently banned account cannot be restored."}, status=409)
     with transaction.atomic():
         user.is_active = action == "restore"
-        user.save(update_fields=["is_active", "updated_at"])
+        if action == "permanent_ban":
+            user.is_active = False
+            user.is_permanently_banned = True
+        user.save(update_fields=["is_active", "is_permanently_banned", "updated_at"])
         AuditLog.objects.create(actor=request.user, action=f"user_{action}", entity_type="user", entity_id=user.id, metadata={"email": user.email})
-    notify_user(user, f"Account {action}d", f"Your RideHub account was {action}d by the platform administration team.")
-    return JsonResponse({"ok": True, "message": f"User {'restored' if action == 'restore' else 'revoked'} successfully."})
+    notification_label = "permanently banned" if action == "permanent_ban" else f"{action}d"
+    notify_user(user, f"Account {notification_label}", f"Your RideHub account was {notification_label} by the platform administration team.")
+    label = "restored" if action == "restore" else ("permanently banned" if action == "permanent_ban" else "revoked")
+    return JsonResponse({"ok": True, "message": f"User {label} successfully."})
 
 
 @_admin_only

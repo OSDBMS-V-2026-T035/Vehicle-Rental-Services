@@ -26,6 +26,10 @@ def _load_local_env(path):
 
 # Support both the conventional hidden `.env` file and the `env` file used by
 # this workspace. Existing process variables still take precedence.
+# Keep the developer's private integration file first so blank placeholders in
+# the shared `.env` template cannot mask working local credentials. Process
+# environment variables still win because the loader never overwrites them.
+_load_local_env(PROJECT_ROOT / "razorpay_env")
 _load_local_env(PROJECT_ROOT / "env")
 _load_local_env(PROJECT_ROOT / ".env")
 

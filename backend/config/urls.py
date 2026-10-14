@@ -8,7 +8,7 @@ from django.views.generic import TemplateView
 
 from apps.accounts.views import auth_page, captcha_view, login_view, logout_view, password_reset_confirm_view, password_reset_otp_view, portal_view, send_otp_view, signup_view, verify_signup_otp_view
 from apps.adminpanel.views import booking_action, dashboard as admin_dashboard, shopkeeper_action, user_action, vehicle_action
-from apps.adminpanel.portal_views import admin_audit, admin_review_queues, admin_summary
+from apps.adminpanel.portal_views import admin_audit, admin_earnings, admin_review_queues, admin_summary
 from apps.bookings.views import booking_history, create_booking, create_checkout_booking_view, shopkeeper_booking_action, shopkeeper_vehicle_availability
 from apps.accounts.shopkeeper_portal_views import set_vehicle_availability, shopkeeper_reservation_action, shopkeeper_reservations, shopkeeper_summary, update_vehicle_rate
 from apps.payments.views import create_razorpay_order, razorpay_webhook, verify_razorpay_payment
@@ -32,6 +32,7 @@ urlpatterns = [
     path("api/admin/summary/", admin_summary, name="admin-summary"),
     path("api/admin/review-queues/", admin_review_queues, name="admin-review-queues"),
     path("api/admin/audit/", admin_audit, name="admin-audit"),
+    path("api/admin/earnings/", admin_earnings, name="admin-earnings"),
     path("api/admin/vehicles/<int:vehicle_id>/action/", vehicle_action, name="admin-vehicle-action"),
     path("api/admin/users/<int:user_id>/action/", user_action, name="admin-user-action"),
     path("api/admin/bookings/<int:booking_id>/action/", booking_action, name="admin-booking-action"),

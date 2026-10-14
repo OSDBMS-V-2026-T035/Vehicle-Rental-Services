@@ -36,6 +36,8 @@ staticfiles/
 # Environment files
 .env
 env
+razorpay_env
+razorpay_env.*
 
 # IDE and OS files
 .vscode/
