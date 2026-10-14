@@ -24,8 +24,14 @@ async function postForm(url, body, isFormData = false) {
     };
     if (!isFormData) options.headers['Content-Type'] = 'application/json';
     const response = await fetch(url, options);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Request could not be completed.');
+    const raw = await response.text();
+    let data = {};
+    try { data = raw ? JSON.parse(raw) : {}; }
+    catch { data = { message: `The server returned an unreadable response (HTTP ${response.status}). Check the Django server log for the underlying error.` }; }
+    if (!response.ok || data.ok === false) {
+        const message = data.message || `Request failed with HTTP ${response.status}. Check the Django server log for the underlying error.`;
+        throw new Error(message);
+    }
     return data;
 }
 

@@ -1,7 +1,7 @@
 {% load static %}
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="RideHub marketplace administration"><title>Control center · RideHub</title><link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=20261011-workspace"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="RideHub marketplace administration"><title>Control center · RideHub</title><link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=20261011-workspace"><link rel="stylesheet" href="{% static 'css/theme.css' %}?v=20261014-4"></head>
 <body class="dashboard-page workspace-page admin-page">
     <form class="csrf-holder">{% csrf_token %}</form>
     <div class="workspace-layout">
@@ -9,7 +9,7 @@
             <a class="workspace-brand" href="/" aria-label="RideHub home"><span class="brand-symbol admin-symbol">RH</span><span><b>RideHub</b><small>Control center</small></span></a>
             <div class="workspace-profile"><span class="avatar avatar-violet">A</span><div><strong>RideHub Admin</strong><small>Platform operations</small></div><span class="online-dot"></span></div>
             <nav class="sidebar-nav" aria-label="Administrator navigation"><p class="nav-label">Monitor</p><a class="nav-item active" href="#overview"><span>⌂</span>Overview</a><a class="nav-item" href="#shop-approvals"><span>◈</span>Shop approvals <em>{{ stats.pending_shops }}</em></a><a class="nav-item" href="#fleet-review"><span>▣</span>Fleet review <em>{{ stats.pending_vehicles }}</em></a><a class="nav-item" href="#bookings"><span>▤</span>Bookings</a><p class="nav-label">Governance</p><a class="nav-item" href="#access-control"><span>♙</span>Access control</a><a class="nav-item" href="#audit-trail"><span>◷</span>Audit trail</a><a class="nav-item" href="/admin/" target="_blank" rel="noreferrer"><span>⚙</span>Django admin</a></nav>
-            <div class="sidebar-bottom"><div class="sidebar-status"><span class="status-pulse"></span><span>All systems operational</span></div><button type="button" class="sidebar-logout" data-logout>↗ <span>Log out</span></button></div>
+            <div class="sidebar-bottom"><section class="theme-switcher" aria-label="Choose appearance"><div><strong>Appearance</strong><small>Personalize this workspace</small></div><div class="theme-options" role="group" aria-label="Workspace theme"><button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button><button type="button" data-theme-choice="light" aria-pressed="false">Light</button><button type="button" data-theme-choice="blue" aria-pressed="false">Blue</button></div></section><div class="sidebar-status"><span class="status-pulse"></span><span>All systems operational</span></div><button type="button" class="sidebar-logout" data-logout>↗ <span>Log out</span></button></div>
         </aside>
         <div class="workspace-main">
             <header class="workspace-topbar"><div class="topbar-title"><button class="sidebar-toggle" type="button" data-sidebar-toggle aria-label="Open navigation">☰</button><div><span class="breadcrumb">RIDEHUB / PLATFORM CONTROL</span><h1>Good afternoon, admin.</h1></div></div><div class="topbar-actions"><span class="topbar-date">Secure session <i class="online-dot"></i></span><button class="icon-button" type="button" title="Notifications">♢</button><span class="topbar-avatar avatar-violet">A</span></div></header>
@@ -26,6 +26,6 @@
             </main>
         </div>
     </div>
-    <script src="{% static 'js/dashboard.js' %}?v=20261011-admin-workspace-2"></script>
+    <script src="{% static 'js/theme.js' %}?v=20261014-4"></script><script src="{% static 'js/dashboard.js' %}?v=20261014-4"></script>
 </body>
 </html>

@@ -89,3 +89,44 @@
 @keyframes portalPulse { from{opacity:.3;transform:translateY(0)} to{opacity:1;transform:translateY(-4px)} }
 @media(max-width:1060px){.user-search-form{grid-template-columns:repeat(2,1fr)}.location-field{grid-column:1/-1}.search-action{width:100%}.vehicle-result-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:720px){.user-portal-page .portal-topbar{padding-inline:17px}.user-portal-page .portal-content{width:min(100% - 28px,620px);padding-top:24px}.user-hero{min-height:0;padding:25px;align-items:flex-start}.hero-orbit{display:none}.search-card-heading{display:block}.live-chip{display:inline-flex;margin-top:13px}.user-search-card{padding:22px}.user-search-form{grid-template-columns:1fr}.location-field{grid-column:auto}.vehicle-result-grid,.shop-result-grid,.user-feature-grid,.profile-grid{grid-template-columns:1fr}.results-heading{align-items:start;display:block}.results-heading>small{display:block;margin-top:8px}.shop-result-card{grid-template-columns:43px 1fr}.shop-result-card .direction-link{grid-column:2}.checkout-modal{padding:23px}.booking-card-title{display:block}.booking-status{margin-top:9px}.profile-details div{display:block}.profile-details dd{margin-top:5px;text-align:left}.user-hero h1{font-size:35px}}
+
+/* Marketplace shop cards and the shop-first discovery flow. */
+.shop-result-card { display:grid; grid-template-columns:1fr auto; gap:12px; padding:0; overflow:hidden; transition:transform .2s,border-color .2s,box-shadow .2s; }
+.shop-result-card:hover { transform:translateY(-3px); border-color:rgba(105,190,255,.55); box-shadow:0 16px 32px rgba(0,0,0,.2); }
+.shop-result-main { display:grid; grid-template-columns:48px 1fr 24px; align-items:center; gap:13px; min-width:0; padding:17px; border:0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
+.shop-logo { display:grid; place-items:center; width:48px; height:48px; border:1px solid rgba(135,216,255,.3); border-radius:15px; color:#eaf7ff; background:linear-gradient(135deg,#1e8bd5,#6651d7); box-shadow:0 8px 20px rgba(32,119,211,.2); font:800 15px/1 'Manrope','DM Sans',sans-serif; letter-spacing:.05em; }
+.shop-result-copy { min-width:0; }
+.shop-result-copy strong,.shop-result-copy span,.shop-result-copy small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.shop-result-copy strong { color:#eef7ff; font-size:14px; }
+.shop-result-copy span { margin-top:4px; color:var(--user-muted); font-size:10px; }
+.shop-result-copy small { margin-top:5px; color:#79cbab; font-size:10px; }
+.shop-open-arrow { color:#8ed2ff; font-size:20px; }
+.shop-result-card > .direction-link { align-self:center; margin-right:17px; }
+.shop-listing-overlay { position:fixed; z-index:35; inset:0; display:grid; place-items:center; padding:22px; background:rgba(2,8,15,.78); backdrop-filter:blur(9px); }
+.shop-listing-modal,.vehicle-detail-modal { position:relative; width:min(920px,100%); max-height:calc(100vh - 44px); overflow:auto; padding:30px; border:1px solid rgba(115,193,249,.35); border-radius:22px; background:linear-gradient(145deg,#112b45,#081725); box-shadow:0 28px 90px rgba(0,0,0,.55); }
+.shop-listing-modal h2,.vehicle-detail-modal h2 { margin:0; color:#f1f8ff; font:700 27px/1.1 'Manrope','DM Sans',sans-serif; letter-spacing:-.05em; }
+.shop-listing-modal .modal-subtitle,.vehicle-detail-modal .modal-subtitle { max-width:700px; }
+.shop-listing-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; margin-top:20px; }
+.shop-listing-card { display:grid; grid-template-columns:130px 1fr; gap:14px; overflow:hidden; min-height:150px; border:1px solid var(--user-line); border-radius:15px; background:rgba(8,20,34,.7); }
+.shop-listing-card > img { width:130px; height:100%; min-height:150px; object-fit:cover; background:#17324d; }
+.shop-listing-card > div { padding:15px 14px 14px 0; }
+.shop-listing-card-title { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+.shop-listing-card-title h3 { margin:0; color:#f0f7ff; font-size:14px; }
+.shop-listing-card-title strong { color:#b9e3ff; font-size:14px; white-space:nowrap; }
+.shop-listing-card-title small { display:inline-block; margin-left:3px; color:var(--user-muted); font-size:9px; }
+.shop-listing-card p { margin:7px 0; color:var(--user-muted); font-size:10px; }
+.shop-listing-card .result-availability { margin:6px 0 11px; }
+.shop-listing-card .user-secondary-action { min-height:34px; }
+.vehicle-detail-modal { display:grid; grid-template-columns:260px 1fr; gap:25px; padding:0; overflow:hidden; }
+.vehicle-detail-modal > img { width:260px; height:100%; min-height:390px; object-fit:cover; background:#17324d; }
+.vehicle-detail-body { padding:32px 30px 30px 0; }
+.vehicle-spec-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:9px; margin:22px 0; }
+.vehicle-spec-grid span { padding:11px; border:1px solid var(--user-line); border-radius:10px; background:rgba(5,16,29,.5); }
+.vehicle-spec-grid small,.vehicle-spec-grid b { display:block; }
+.vehicle-spec-grid small { color:var(--user-muted); font-size:9px; }
+.vehicle-spec-grid b { margin-top:4px; color:#e8f5ff; font-size:11px; }
+.vehicle-detail-description { color:#b9cadb; font-size:12px; line-height:1.6; }
+.shop-listing-card.is-unavailable,.vehicle-result-card.is-unavailable { opacity:.72; }
+.shop-listing-card.is-unavailable .user-secondary-action { color:#a9bacc; border-color:rgba(130,161,190,.25); background:rgba(53,73,94,.2); }
+@media(max-width:820px){.shop-listing-grid{grid-template-columns:1fr}.vehicle-detail-modal{grid-template-columns:1fr}.vehicle-detail-modal>img{width:100%;height:190px;min-height:0}.vehicle-detail-body{padding:0 23px 25px}.vehicle-spec-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.shop-listing-overlay{padding:10px}.shop-listing-modal{padding:23px 17px}.shop-result-card{grid-template-columns:1fr}.shop-result-card>.direction-link{margin:0 17px 15px}.shop-listing-card{grid-template-columns:100px 1fr}.shop-listing-card>img{width:100px;min-height:140px}.shop-listing-card>div{padding-right:10px}.vehicle-spec-grid{gap:7px}}
