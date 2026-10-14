@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
+from django.db import DatabaseError, IntegrityError
 from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.utils import timezone
@@ -100,6 +101,8 @@ def create_vehicle(request):
     profile = getattr(request.user, "shopkeeper_profile", None)
     if not profile or profile.verification_status != ShopkeeperProfile.VerificationStatus.VERIFIED:
         return JsonResponse({"ok": False, "message": "Admin verification is required before listing vehicles."}, status=403)
+    if request.POST.get("vehicle_type", "").strip().lower() == "cycle":
+        return JsonResponse({"ok": False, "message": "Bicycle listings are no longer supported."}, status=400)
     try:
         vehicle = Vehicle(
             shopkeeper=profile,
@@ -117,6 +120,11 @@ def create_vehicle(request):
             available_quantity=int(request.POST.get("quantity", "1")),
             description=request.POST.get("description", "").strip(),
             image=request.FILES.get("image"),
+            # A verified shopkeeper has already passed the platform gate. New
+            # inventory is therefore searchable immediately; administrators
+            # retain moderation controls for exceptional cases.
+            listing_status=Vehicle.ListingStatus.APPROVED,
+            admin_note="Published by verified shopkeeper; available for audit.",
         )
         if vehicle.image:
             if not vehicle.image.content_type.startswith("image/"):
@@ -131,7 +139,11 @@ def create_vehicle(request):
         else:
             message = str(exc)
         return JsonResponse({"ok": False, "message": message}, status=400)
-    return JsonResponse({"ok": True, "message": "Vehicle submitted for admin approval.", "id": vehicle.id})
+    except IntegrityError:
+        return JsonResponse({"ok": False, "message": "That registration number is already registered. Use a unique vehicle registration number."}, status=409)
+    except DatabaseError:
+        return JsonResponse({"ok": False, "message": "The vehicle database schema is not ready. Run the RideHub migration command and try again."}, status=503)
+    return JsonResponse({"ok": True, "message": "Vehicle listed successfully. It is now visible to customers.", "id": vehicle.id})
 
 
 @login_required
@@ -178,6 +190,7 @@ def search_vehicles(request):
         return JsonResponse({"ok": False, "message": date_error}, status=400)
     vehicle_type = request.GET.get("vehicle_type", "all").lower()
     query = request.GET.get("q", "").strip().lower()
+    shop_id = request.GET.get("shop_id", "").strip()
     try:
         latitude = float(request.GET.get("latitude", ""))
         longitude = float(request.GET.get("longitude", ""))
@@ -189,12 +202,17 @@ def search_vehicles(request):
         quantity__gt=0,
         shopkeeper__verification_status=ShopkeeperProfile.VerificationStatus.VERIFIED,
         shopkeeper__user__is_active=True,
-    ).select_related("shopkeeper")
+    ).exclude(vehicle_type=Vehicle.VehicleType.CYCLE).select_related("shopkeeper")
     from django.utils.dateparse import parse_date
     pickup = parse_date(request.GET.get("pickup_date", "")) if request.GET.get("pickup_date") else None
     return_date = parse_date(request.GET.get("return_date", "")) if request.GET.get("return_date") else None
     if vehicle_type != "all":
         vehicles = vehicles.filter(vehicle_type=vehicle_type)
+    if shop_id:
+        try:
+            vehicles = vehicles.filter(shopkeeper_id=int(shop_id))
+        except ValueError:
+            return JsonResponse({"ok": False, "message": "That rental shop could not be identified."}, status=400)
     if pickup and return_date:
         # Keep unavailable listings in the response so the customer sees a
         # truthful "unavailable for these dates" card instead of a misleading
@@ -233,5 +251,6 @@ def search_vehicles(request):
         "ok": True,
         "count": len(visible),
         "available_count": sum(item["availability_status"] == "AVAILABLE" for item in visible),
+        "available_units_count": sum(item["available_quantity"] for item in visible),
         "vehicles": visible,
     })

@@ -34,15 +34,18 @@ def _coordinates(request):
 
 
 def _shop_payload(profile, distance=None):
+    words = [word for word in profile.shop_name.split() if word]
+    monogram = "".join(word[0] for word in words[:2]).upper() or "RH"
     result = {
         "id": profile.id,
         "name": profile.shop_name,
+        "monogram": monogram,
         "address": profile.shop_address,
         "latitude": float(profile.latitude) if profile.latitude is not None else None,
         "longitude": float(profile.longitude) if profile.longitude is not None else None,
         "vehicle_count": profile.vehicles.filter(
             listing_status=Vehicle.ListingStatus.APPROVED, is_available=True
-        ).count(),
+        ).aggregate(total=Sum("quantity"))["total"] or 0,
     }
     if distance is not None:
         result["distance_km"] = round(distance, 1)
@@ -123,7 +126,11 @@ def update_shopkeeper_profile(request):
     if profile.verification_status == ShopkeeperProfile.VerificationStatus.REJECTED:
         profile.verification_status = ShopkeeperProfile.VerificationStatus.PENDING
     profile.save()
-    return JsonResponse({"ok": True, "message": "Shop profile saved and sent for admin review."})
+    if profile.verification_status == ShopkeeperProfile.VerificationStatus.PENDING:
+        message = "Shop profile saved. It is now waiting for the one-time admin account review."
+    else:
+        message = "Shop profile saved successfully. Your live listings will use these updated details."
+    return JsonResponse({"ok": True, "message": message})
 
 
 @require_GET
