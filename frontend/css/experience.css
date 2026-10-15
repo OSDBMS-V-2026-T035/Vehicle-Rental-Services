@@ -1,0 +1,58 @@
+/* Shared RideHub experience layer: presentation only, safe for every portal. */
+:root { --rh-cyan:#62c4ff; --rh-blue:#238eff; --rh-violet:#7658ff; --rh-ink:#050b12; --rh-line:rgba(126,194,255,.22); --rh-glow:0 20px 50px rgba(0,21,50,.32); }
+body { background-color:var(--rh-ink); }
+body::before,body::after { content:''; position:fixed; z-index:-1; pointer-events:none; border-radius:50%; }
+body::before { width:38rem; height:38rem; top:-22rem; right:-11rem; background:radial-gradient(circle,rgba(44,149,255,.16),transparent 67%); animation:rh-drift 16s ease-in-out infinite alternate; }
+body::after { width:30rem; height:30rem; bottom:-18rem; left:-10rem; background:radial-gradient(circle,rgba(117,81,255,.13),transparent 68%); animation:rh-drift 20s ease-in-out infinite alternate-reverse; }
+
+/* Auth keeps the landing page's blue-violet glass language while preserving all forms. */
+.auth-page { isolation:isolate; }
+.auth-page .auth-backdrop { position:fixed; inset:0; z-index:-1; overflow:hidden; background:linear-gradient(115deg,rgba(3,10,19,.86),rgba(5,17,35,.54)),url('../images/hero.jpg') center/cover; }
+.auth-page .auth-backdrop::before,.auth-page .auth-backdrop::after { content:''; position:absolute; border-radius:50%; pointer-events:none; }
+.auth-page .auth-backdrop::before { width:34rem; height:34rem; right:5%; top:16%; background:radial-gradient(circle,rgba(71,171,255,.22),transparent 66%); animation:rh-pulse 6s ease-in-out infinite; }
+.auth-page .auth-backdrop::after { width:22rem; height:22rem; left:22%; bottom:-8rem; border:1px solid rgba(117,197,255,.22); box-shadow:0 0 70px rgba(30,130,255,.17); animation:rh-orbit 16s linear infinite; }
+.auth-header { border-bottom:1px solid rgba(172,221,255,.13); }
+.auth-brand .logo-mark { display:grid; place-items:center; width:36px; height:36px; border:1px solid rgba(119,204,255,.55); border-radius:12px; background:linear-gradient(135deg,rgba(30,148,255,.45),rgba(120,80,255,.45)); animation:rh-float 4s ease-in-out infinite; }
+.back-home,.role-card,.auth-panel { backdrop-filter:blur(18px); }
+.back-home { padding:9px 13px; border:1px solid var(--rh-line); border-radius:10px; background:rgba(7,19,33,.42); transition:transform .25s ease,border-color .25s ease; }
+.back-home:hover { transform:translateY(-2px); border-color:var(--rh-cyan); }
+.auth-panel { position:relative; overflow:hidden; border-color:rgba(112,192,255,.35); box-shadow:var(--rh-glow),inset 0 1px 0 rgba(255,255,255,.06); }
+.auth-panel::before { content:''; position:absolute; inset:0 0 auto; height:2px; background:linear-gradient(90deg,transparent,var(--rh-cyan),var(--rh-violet),transparent); animation:rh-scan 5s linear infinite; }
+.role-card,.input-control,.captcha-card { box-shadow:inset 0 1px 0 rgba(255,255,255,.04); }
+.role-card { transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease!important; }
+.role-card:hover { box-shadow:0 14px 30px rgba(6,82,163,.24),inset 0 1px 0 rgba(255,255,255,.08); }
+.submit-button,.otp-button { position:relative; overflow:hidden; background:linear-gradient(100deg,var(--rh-blue),var(--rh-violet)); box-shadow:0 10px 25px rgba(46,105,255,.26); }
+.submit-button::after,.otp-button::after { content:''; position:absolute; inset:0; transform:translateX(-130%) skewX(-22deg); background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent); transition:transform .55s ease; }
+.submit-button:hover::after,.otp-button:hover::after { transform:translateX(130%) skewX(-22deg); }
+
+/* The dashboard shell receives the same glass cards, glowing brand and motion. */
+.portal-page,.dashboard-page { background:radial-gradient(circle at 85% 0,rgba(36,127,239,.15),transparent 28rem),var(--rh-ink); }
+.portal-sidebar,.workspace-sidebar { border-right-color:rgba(122,191,255,.18)!important; background:linear-gradient(180deg,rgba(8,21,37,.96),rgba(5,13,24,.98))!important; }
+.portal-brand-mark,.brand-symbol { background:linear-gradient(135deg,var(--rh-blue),var(--rh-violet))!important; box-shadow:0 0 25px rgba(65,143,255,.32); animation:rh-float 4s ease-in-out infinite; }
+.portal-topbar,.workspace-topbar { border-bottom-color:rgba(122,191,255,.17)!important; background:rgba(5,15,28,.7)!important; backdrop-filter:blur(18px); }
+.portal-nav a,.sidebar-nav .nav-item { transition:transform .22s ease,color .22s ease,background .22s ease; }
+.portal-nav a:hover,.sidebar-nav .nav-item:hover { transform:translateX(4px); }
+.portal-content>*,.workspace-content>* { animation:rh-rise .58s cubic-bezier(.2,.75,.3,1) both; }
+.portal-content>*:nth-child(2),.workspace-content>*:nth-child(2) { animation-delay:.07s; }
+.portal-content>*:nth-child(3),.workspace-content>*:nth-child(3) { animation-delay:.14s; }
+.portal-content>*:nth-child(4),.workspace-content>*:nth-child(4) { animation-delay:.21s; }
+.metric-card,.panel-card,.workspace-hero,.portal-card,.summary-card,.dashboard-card { border-color:var(--rh-line)!important; box-shadow:inset 0 1px 0 rgba(255,255,255,.045),var(--rh-glow); transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease; }
+.metric-card:hover,.panel-card:hover,.portal-card:hover,.summary-card:hover,.dashboard-card:hover { transform:translateY(-4px); border-color:rgba(111,197,255,.55)!important; box-shadow:0 20px 38px rgba(0,32,76,.28),inset 0 1px 0 rgba(255,255,255,.08); }
+.workspace-hero { position:relative; overflow:hidden; background:linear-gradient(115deg,rgba(16,72,137,.7),rgba(43,39,111,.72))!important; }
+.workspace-hero::after { content:''; position:absolute; width:230px; height:230px; top:-130px; right:10%; border:1px solid rgba(159,218,255,.25); border-radius:50%; animation:rh-orbit 18s linear infinite; }
+.workspace-hero>* { position:relative; z-index:1; }
+.panel-card table tbody tr,.table-wrap tbody tr { transition:background .2s ease,transform .2s ease; }
+.panel-card table tbody tr:hover,.table-wrap tbody tr:hover { background:rgba(49,133,232,.09); }
+.action-group button,.panel-card button,.portal-content button:not(.top-icon):not(.mobile-menu) { transition:transform .2s ease,filter .2s ease,box-shadow .2s ease; }
+.action-group button:hover,.panel-card button:hover,.portal-content button:not(.top-icon):not(.mobile-menu):hover { transform:translateY(-2px); filter:brightness(1.12); box-shadow:0 8px 18px rgba(30,114,240,.2); }
+
+.rh-reveal { opacity:0; transform:translateY(16px); transition:opacity .62s ease,transform .62s cubic-bezier(.2,.75,.3,1); }
+.rh-reveal.is-visible { opacity:1; transform:translateY(0); }
+@keyframes rh-rise { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:translateY(0); } }
+@keyframes rh-float { 50% { transform:translateY(-5px); } }
+@keyframes rh-drift { to { transform:translate3d(-4rem,3rem,0) scale(1.12); } }
+@keyframes rh-pulse { 50% { transform:scale(1.15); opacity:.72; } }
+@keyframes rh-orbit { to { transform:rotate(360deg); } }
+@keyframes rh-scan { from { transform:translateX(-60%); } to { transform:translateX(60%); } }
+@media (max-width:760px) { .auth-page .auth-backdrop::after { display:none; } .auth-panel { backdrop-filter:blur(12px); } .portal-content>*,.workspace-content>* { animation-delay:0s!important; } }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; } .rh-reveal { opacity:1; transform:none; } }

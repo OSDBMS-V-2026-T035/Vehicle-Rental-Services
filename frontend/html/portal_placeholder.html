@@ -1,4 +1,4 @@
-{% load static %}
+﻿{% load static %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -9,20 +9,21 @@
   <link rel="stylesheet" href="{% static 'css/portal.css' %}?v=20261011-2">
   {% if portal_role == 'USER' %}<link rel="stylesheet" href="{% static 'css/user-portal.css' %}?v=20261013-1">{% endif %}
   <link rel="stylesheet" href="{% static 'css/theme.css' %}?v=20261014-4">
+  <link rel="stylesheet" href="{% static "css/experience.css" %}?v=20261015-ui-motion">
 </head>
 <body class="portal-page{% if portal_role == 'USER' %} user-portal-page{% endif %}" data-role="{{ portal_role }}" data-google-maps-key="{{ GOOGLE_MAPS_API_KEY|default:'' }}">
   <div class="portal-noise"></div>
   <div class="portal-layout">
     <aside class="portal-sidebar" id="portal-sidebar">
       <a class="portal-brand" href="/" aria-label="RideHub home"><span class="portal-brand-mark" aria-hidden="true"><svg viewBox="0 0 48 48" role="img"><path d="M9 38V10h16.5c8.5 0 13.5 4 13.5 10.6 0 5.5-3.8 9.2-10.4 10.1L39 38"/><path d="M17 24h9.5c3.8 0 5.8-1.1 5.8-3.5S30.3 17 26.5 17H17"/></svg></span><span><strong>RideHub</strong><small>MOVE FREELY. LIVE MORE.</small></span></a>
-      <div class="portal-role"><span class="role-orb">✦</span><div><small>{{ role_label }} SPACE</small><strong>{{ portal_title }}</strong></div></div>
+      <div class="portal-role"><span class="role-orb">âœ¦</span><div><small>{{ role_label }} SPACE</small><strong>{{ portal_title }}</strong></div></div>
       <nav class="portal-nav" id="portal-nav" aria-label="Portal navigation"></nav>
       <div class="sidebar-bottom">
         <section class="theme-switcher" aria-label="Choose appearance"><div><strong>Appearance</strong><small>Choose your portal theme</small></div><div class="theme-options" role="group" aria-label="Portal theme"><button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button><button type="button" data-theme-choice="light" aria-pressed="false">Light</button><button type="button" data-theme-choice="blue" aria-pressed="false">Blue</button></div></section>
-        <div class="account-mini"><span class="avatar">{{ user_name|slice:':1'|upper }}</span><div><strong>{{ user_name }}</strong><small>{{ role_label }}</small></div><button class="icon-button" id="profile-shortcut" title="Profile">⋮</button></div><button class="logout-button" id="logout-button"><span>↗</span> Log out</button></div>
+        <div class="account-mini"><span class="avatar">{{ user_name|slice:':1'|upper }}</span><div><strong>{{ user_name }}</strong><small>{{ role_label }}</small></div><button class="icon-button" id="profile-shortcut" title="Profile">â‹®</button></div><button class="logout-button" id="logout-button"><span>â†—</span> Log out</button></div>
     </aside>
     <main class="portal-main">
-      <header class="portal-topbar"><button class="mobile-menu" id="mobile-menu" aria-label="Open menu">☰</button><div class="crumb"><span id="crumb-label">Overview</span><small>{{ role_label }} portal</small></div><div class="top-actions"><button class="top-icon" data-coming-soon="Notifications are under development." aria-label="Notifications">♢<i></i></button><button class="top-icon" data-coming-soon="Help centre is under development." aria-label="Help">?</button><span class="header-avatar">{{ user_name|slice:':1'|upper }}</span></div></header>
+      <header class="portal-topbar"><button class="mobile-menu" id="mobile-menu" aria-label="Open menu">â˜°</button><div class="crumb"><span id="crumb-label">Overview</span><small>{{ role_label }} portal</small></div><div class="top-actions"><button class="top-icon" data-coming-soon="Notifications are under development." aria-label="Notifications">â™¢<i></i></button><button class="top-icon" data-coming-soon="Help centre is under development." aria-label="Help">?</button><span class="header-avatar">{{ user_name|slice:':1'|upper }}</span></div></header>
       <section class="portal-content" id="portal-content" aria-live="polite"></section>
     </main>
   </div>
@@ -39,5 +40,7 @@
   {% else %}
     <script src="{% static 'js/portal.js' %}?v=20261011"></script>
   {% endif %}
+  <script src="{% static "js/experience.js" %}?v=20261015-ui-motion"></script>
 </body>
 </html>
+
