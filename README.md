@@ -59,6 +59,9 @@ Use Test keys while developing. In the Razorpay Dashboard, add the
 into `RAZORPAY_WEBHOOK_SECRET`. Keep the key secret and webhook secret out of
 browser code and source control.
 
+For the secure release checklist, webhook configuration, and payment recovery
+behaviour, see [Payment gateway handoff](docs/PAYMENT_GATEWAY_SETUP.md).
+
 The detailed OS/DBMS mapping is in [`docs/OS_DBMS_IMPLEMENTATION.md`](docs/OS_DBMS_IMPLEMENTATION.md).
 
 ## Docker deployment
