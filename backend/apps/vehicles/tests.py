@@ -1,8 +1,30 @@
 from types import SimpleNamespace
 
+from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
+from django.urls import resolve
 
-from .views import _vehicle_payload
+from .views import _validate_vehicle_image, _vehicle_payload
+
+
+class VehicleImageValidationTests(SimpleTestCase):
+    def test_accepts_an_image_upload(self):
+        upload = SimpleUploadedFile("vehicle.jpg", b"image-data", content_type="image/jpeg")
+
+        _validate_vehicle_image(upload)
+
+    def test_rejects_non_image_upload(self):
+        upload = SimpleUploadedFile("vehicle.pdf", b"document-data", content_type="application/pdf")
+
+        with self.assertRaisesMessage(ValidationError, "Vehicle photo must be an image file."):
+            _validate_vehicle_image(upload)
+
+    def test_rejects_an_image_larger_than_five_megabytes(self):
+        upload = SimpleUploadedFile("vehicle.jpg", b"x" * (5 * 1024 * 1024 + 1), content_type="image/jpeg")
+
+        with self.assertRaisesMessage(ValidationError, "Vehicle photo must be 5 MB or smaller."):
+            _validate_vehicle_image(upload)
 
 
 class VehiclePayloadAvailabilityTests(SimpleTestCase):
@@ -49,4 +71,8 @@ class VehiclePayloadAvailabilityTests(SimpleTestCase):
 
         self.assertEqual(payload["available_quantity"], 2)
         self.assertEqual(payload["availability_status"], "AVAILABLE")
+
+    def test_vehicle_detail_route_does_not_shadow_live_search(self):
+        self.assertEqual(resolve("/api/vehicles/search/").url_name, "vehicles-search")
+        self.assertEqual(resolve("/api/vehicles/17/").url_name, "vehicle-detail")
 

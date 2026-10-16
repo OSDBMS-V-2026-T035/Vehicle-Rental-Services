@@ -72,3 +72,49 @@ def admin_earnings(request):
         "shop": payment.booking.vehicle.shopkeeper.shop_name,
         "created_at": payment.created_at.isoformat(),
     } for payment in payments]})
+
+
+@_admin_only
+@require_GET
+def admin_catalog(request, resource):
+    """Dedicated, paged workspace data for each admin operation area."""
+    if resource == "shopkeepers":
+        rows = ShopkeeperProfile.objects.select_related("user").annotate(vehicle_count=Count("vehicles"))[:200]
+        return JsonResponse({"ok": True, "rows": [{
+            "id": row.id, "name": row.shop_name, "address": row.shop_address,
+            "email": row.user.email, "phone": row.user.phone_number,
+            "description": row.shop_description, "latitude": str(row.latitude or ""), "longitude": str(row.longitude or ""),
+            "current_location": f"{row.latitude}, {row.longitude}" if row.latitude is not None and row.longitude is not None else "Not added",
+            "status": row.verification_status, "vehicle_count": row.vehicle_count,
+            "active": row.user.is_active, "action_url": f"/api/admin/shopkeepers/{row.id}/action/",
+        } for row in rows]})
+    if resource == "vehicles":
+        rows = Vehicle.objects.select_related("shopkeeper", "shopkeeper__user")[:200]
+        return JsonResponse({"ok": True, "rows": [{
+            "id": row.id, "name": row.display_name, "registration_number": row.registration_number,
+            "shop": row.shopkeeper.shop_name, "rate": str(row.daily_rate), "quantity": row.quantity,
+            "available": row.is_available, "status": row.listing_status, "type": row.get_vehicle_type_display(),
+            "brand": row.brand, "model": row.model_name, "year": row.manufacturing_year,
+            "fuel": row.fuel_type, "seats": row.seating_capacity, "description": row.description,
+            "image_url": row.image.url if row.image else "",
+            "action_url": f"/api/admin/vehicles/{row.id}/action/",
+        } for row in rows]})
+    if resource == "bookings":
+        rows = Booking.objects.select_related("customer", "vehicle", "vehicle__shopkeeper", "payment")[:200]
+        return JsonResponse({"ok": True, "rows": [{
+            "id": row.id, "customer": row.customer.get_full_name() or row.customer.email,
+            "vehicle": row.vehicle.display_name, "shop": row.vehicle.shopkeeper.shop_name,
+            "pickup": row.pickup_date.isoformat(), "return_date": row.return_date.isoformat(),
+            "amount": str(row.total_amount), "status": row.status,
+            "payment_status": row.payment.status if hasattr(row, "payment") else "PENDING",
+            "action_url": f"/api/admin/bookings/{row.id}/action/",
+        } for row in rows]})
+    if resource == "customers":
+        rows = User.objects.filter(role=User.Role.USER).order_by("-created_at")[:200]
+        return JsonResponse({"ok": True, "rows": [{
+            "id": row.id, "name": row.get_full_name() or row.email, "email": row.email,
+            "phone": row.phone_number, "role": row.get_role_display(), "email_verified": row.is_email_verified,
+            "active": row.is_active,
+            "banned": row.is_permanently_banned, "action_url": f"/api/admin/users/{row.id}/action/",
+        } for row in rows]})
+    return JsonResponse({"ok": False, "message": "Unknown admin workspace."}, status=404)

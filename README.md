@@ -39,6 +39,25 @@ remain separate extension points.
 - Verified shopkeepers submit vehicle details and sample photos; each listing waits for admin approval.
 - Approved listings include a Google Maps directions link when coordinates are available.
 - Pickup dates cannot be in the past. Round-trip return dates are limited to seven days after pickup.
+- A landing-page booking starts with a selected live listing, requires customer login/sign-up, then resumes the same checkout after authentication.
+- Checkout locks available fleet capacity, validates renter details, opens Razorpay, verifies the gateway signature server-side, and sends the paid request to the shopkeeper for confirmation.
+- Shopkeepers can publish, pause, remove, reprice, and safely adjust fleet quantities; quantities cannot be reduced below active/upcoming reservations.
+
+## Razorpay setup
+
+Add the following values to `.env`, then restart the application:
+
+```dotenv
+RAZORPAY_KEY_ID=rzp_test_...
+RAZORPAY_KEY_SECRET=...
+RAZORPAY_WEBHOOK_SECRET=...
+```
+
+Use Test keys while developing. In the Razorpay Dashboard, add the
+`payment.captured` webhook at
+`https://YOUR_DOMAIN/api/payments/razorpay/webhook/` and copy its signing secret
+into `RAZORPAY_WEBHOOK_SECRET`. Keep the key secret and webhook secret out of
+browser code and source control.
 
 The detailed OS/DBMS mapping is in [`docs/OS_DBMS_IMPLEMENTATION.md`](docs/OS_DBMS_IMPLEMENTATION.md).
 

@@ -3,8 +3,9 @@
 from django.contrib.auth.hashers import make_password
 
 
-# Verhoeff tables validate the Aadhaar checksum locally. The complete number
-# is never persisted and this is not a government KYC lookup.
+# The complete Aadhaar number is never persisted and this is not a government
+# KYC lookup. We validate the 12-digit format with the Verhoeff checksum before
+# retaining only a password hash and the final four digits for the booking.
 _D = (
     (0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
     (1, 2, 3, 4, 0, 6, 7, 8, 9, 5),
@@ -34,8 +35,8 @@ def validate_aadhaar(value):
     if len(digits) != 12 or digits[0] in {"0", "1"}:
         return False, None
     checksum = 0
-    for position, digit in enumerate(reversed(digits)):
-        checksum = _D[checksum][_P[position % 8][int(digit)]]
+    for index, digit in enumerate(reversed(digits)):
+        checksum = _D[checksum][_P[index % 8][int(digit)]]
     if checksum != 0:
         return False, None
     return True, (make_password(digits), digits[-4:])

@@ -1,4 +1,6 @@
 import json
+from decimal import Decimal, InvalidOperation
+from datetime import date
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
@@ -10,8 +12,44 @@ from django.views.decorators.http import require_POST
 from apps.accounts.models import ShopkeeperProfile, User
 from apps.notifications.services import notify_user
 from apps.bookings.models import Booking
+from apps.payments.models import PaymentTransaction
 from .models import AuditLog
 from apps.vehicles.models import Vehicle
+
+
+def _permanently_delete_bookings(bookings):
+    """Delete bookings and their protected payment history as one admin action."""
+    booking_ids = list(bookings.values_list("id", flat=True))
+    if not booking_ids:
+        return
+    PaymentTransaction.objects.filter(booking_id__in=booking_ids).delete()
+    Booking.objects.filter(id__in=booking_ids).delete()
+    AuditLog.objects.filter(entity_type="booking", entity_id__in=booking_ids).delete()
+
+
+def _permanently_delete_vehicle(vehicle):
+    vehicle_id = vehicle.id
+    _permanently_delete_bookings(Booking.objects.filter(vehicle=vehicle))
+    vehicle.delete()
+    AuditLog.objects.filter(entity_type="vehicle", entity_id=vehicle_id).delete()
+
+
+def _permanently_delete_shopkeeper(profile):
+    """Remove the account and all shop-owned operational records permanently."""
+    profile_id, user_id = profile.id, profile.user_id
+    vehicle_ids = list(profile.vehicles.values_list("id", flat=True))
+    _permanently_delete_bookings(Booking.objects.filter(vehicle_id__in=vehicle_ids))
+    profile.user.delete()  # cascades the profile, vehicles and user notifications.
+    AuditLog.objects.filter(entity_type="shopkeeper", entity_id=profile_id).delete()
+    AuditLog.objects.filter(entity_type="vehicle", entity_id__in=vehicle_ids).delete()
+    AuditLog.objects.filter(metadata__user_id=user_id).delete()
+
+
+def _permanently_delete_customer(user):
+    user_id = user.id
+    _permanently_delete_bookings(Booking.objects.filter(customer=user))
+    user.delete()  # cascades account notifications and sessions.
+    AuditLog.objects.filter(entity_type="user", entity_id=user_id).delete()
 
 
 def _admin_only(view):
@@ -77,8 +115,31 @@ def shopkeeper_action(request, profile_id):
         "revoke": ShopkeeperProfile.VerificationStatus.REVOKED,
         "permanent_ban": ShopkeeperProfile.VerificationStatus.REVOKED,
     }
+    if action == "edit":
+        payload = _payload(request)
+        name = " ".join(str(payload.get("shop_name", "")).split())
+        address = " ".join(str(payload.get("shop_address", "")).split())
+        description = " ".join(str(payload.get("shop_description", "")).split())
+        if len(name) < 2 or len(address) < 8:
+            return JsonResponse({"ok": False, "message": "Enter a shop name and complete address."}, status=400)
+        try:
+            latitude = Decimal(str(payload.get("latitude", ""))) if payload.get("latitude") else None
+            longitude = Decimal(str(payload.get("longitude", ""))) if payload.get("longitude") else None
+        except (InvalidOperation, ValueError):
+            return JsonResponse({"ok": False, "message": "Enter valid location coordinates."}, status=400)
+        if (latitude is None) != (longitude is None) or (latitude is not None and not (-90 <= latitude <= 90 and -180 <= longitude <= 180)):
+            return JsonResponse({"ok": False, "message": "Enter a valid current latitude and longitude together."}, status=400)
+        profile.shop_name, profile.shop_address, profile.shop_description = name, address, description
+        profile.latitude, profile.longitude = latitude, longitude
+        profile.save(update_fields=["shop_name", "shop_address", "shop_description", "latitude", "longitude", "updated_at"])
+        AuditLog.objects.create(actor=request.user, action="shopkeeper_edited", entity_type="shopkeeper", entity_id=profile.id)
+        return JsonResponse({"ok": True, "message": "Shopkeeper details updated."})
+    if action == "delete":
+        with transaction.atomic():
+            _permanently_delete_shopkeeper(profile)
+        return JsonResponse({"ok": True, "message": "Shopkeeper and all related records were permanently deleted."})
     if action not in status_by_action:
-        return JsonResponse({"ok": False, "message": "Choose approve, reject, revoke, or permanent ban."}, status=400)
+        return JsonResponse({"ok": False, "message": "Choose approve, reject, revoke, edit, or delete."}, status=400)
     if action == "approve" and profile.user.is_permanently_banned:
         return JsonResponse({"ok": False, "message": "A permanently banned shopkeeper cannot be re-approved."}, status=409)
     with transaction.atomic():
@@ -100,14 +161,33 @@ def shopkeeper_action(request, profile_id):
 def vehicle_action(request, vehicle_id):
     vehicle = get_object_or_404(Vehicle, pk=vehicle_id)
     action = _payload(request).get("action", "").lower()
+    if action == "edit":
+        payload = _payload(request)
+        try:
+            rate = float(payload.get("daily_rate"))
+            quantity = int(payload.get("quantity"))
+        except (TypeError, ValueError):
+            return JsonResponse({"ok": False, "message": "Enter a valid rate and quantity."}, status=400)
+        if rate < 0 or not 1 <= quantity <= 999:
+            return JsonResponse({"ok": False, "message": "Rate must be positive and quantity must be 1–999."}, status=400)
+        vehicle.daily_rate = rate
+        vehicle.quantity = quantity
+        vehicle.available_quantity = min(vehicle.available_quantity, quantity)
+        vehicle.save(update_fields=["daily_rate", "quantity", "available_quantity", "updated_at"])
+        AuditLog.objects.create(actor=request.user, action="vehicle_edited", entity_type="vehicle", entity_id=vehicle.id)
+        return JsonResponse({"ok": True, "message": "Vehicle rate and inventory updated."})
+    if action == "delete":
+        with transaction.atomic():
+            _permanently_delete_vehicle(vehicle)
+        return JsonResponse({"ok": True, "message": "Vehicle and its related records were permanently deleted."})
     if action not in {"approve", "reject"}:
-        return JsonResponse({"ok": False, "message": "Choose approve or reject."}, status=400)
+        return JsonResponse({"ok": False, "message": "Choose approve, reject, edit, or delete."}, status=400)
     if action == "approve" and vehicle.shopkeeper.verification_status != ShopkeeperProfile.VerificationStatus.VERIFIED:
         return JsonResponse({"ok": False, "message": "Verify the shopkeeper before approving a vehicle."}, status=409)
     with transaction.atomic():
         vehicle.listing_status = Vehicle.ListingStatus.APPROVED if action == "approve" else Vehicle.ListingStatus.REJECTED
         vehicle.admin_note = str(_payload(request).get("note", "")).strip()[:255]
-        vehicle.save(update_fields=["listing_status", "admin_note", "updated_at"])
+        vehicle.save(update_fields=["listing_status", "is_available", "admin_note", "updated_at"])
         AuditLog.objects.create(actor=request.user, action=f"vehicle_{action}", entity_type="vehicle", entity_id=vehicle.id, metadata={"registration_number": vehicle.registration_number})
     notify_user(vehicle.shopkeeper.user, f"Vehicle listing {action}d", f"Your {vehicle.display_name} listing was {action}d by the RideHub review team.")
     return JsonResponse({"ok": True, "message": f"Vehicle {'approved' if action == 'approve' else 'rejected'} successfully."})
@@ -120,8 +200,31 @@ def user_action(request, user_id):
     if user == request.user:
         return JsonResponse({"ok": False, "message": "You cannot revoke your own admin account."}, status=400)
     action = _payload(request).get("action", "").lower()
+    if action == "edit":
+        payload = _payload(request)
+        name = " ".join(str(payload.get("full_name", "")).split())
+        if not name:
+            return JsonResponse({"ok": False, "message": "Enter the customer's name."}, status=400)
+        first, *rest = name.split(" ", 1)
+        phone = "".join(str(payload.get("phone", user.phone_number)).split())
+        if phone != user.phone_number:
+            from apps.accounts.models import phone_validator
+            try:
+                phone_validator(phone)
+            except ValidationError as exc:
+                return JsonResponse({"ok": False, "message": exc.messages[0]}, status=400)
+            if User.objects.exclude(pk=user.pk).filter(phone_number=phone).exists():
+                return JsonResponse({"ok": False, "message": "This mobile number is already in use."}, status=409)
+        user.first_name, user.last_name, user.phone_number = first, rest[0] if rest else "", phone
+        user.save(update_fields=["first_name", "last_name", "phone_number", "updated_at"])
+        AuditLog.objects.create(actor=request.user, action="user_edited", entity_type="user", entity_id=user.id)
+        return JsonResponse({"ok": True, "message": "Customer details updated."})
+    if action == "delete":
+        with transaction.atomic():
+            _permanently_delete_customer(user)
+        return JsonResponse({"ok": True, "message": "Customer and related records were permanently deleted."})
     if action not in {"revoke", "restore", "permanent_ban"}:
-        return JsonResponse({"ok": False, "message": "Choose revoke, restore, or permanent ban."}, status=400)
+        return JsonResponse({"ok": False, "message": "Choose revoke, restore, edit, or delete."}, status=400)
     if action == "restore" and user.is_permanently_banned:
         return JsonResponse({"ok": False, "message": "A permanently banned account cannot be restored."}, status=409)
     with transaction.atomic():
@@ -141,8 +244,16 @@ def user_action(request, user_id):
 @require_POST
 def booking_action(request, booking_id):
     action = _payload(request).get("action", "").lower()
-    if action not in {"confirm", "cancel", "complete"}:
-        return JsonResponse({"ok": False, "message": "Choose confirm, cancel, or complete."}, status=400)
+    if action == "delete":
+        with transaction.atomic():
+            try:
+                booking = Booking.objects.select_for_update().get(pk=booking_id)
+            except Booking.DoesNotExist:
+                return JsonResponse({"ok": False, "message": "Booking not found."}, status=404)
+            _permanently_delete_bookings(Booking.objects.filter(pk=booking.pk))
+        return JsonResponse({"ok": True, "message": "Booking and payment record were permanently deleted."})
+    if action not in {"confirm", "cancel", "complete", "edit"}:
+        return JsonResponse({"ok": False, "message": "Choose confirm, cancel, complete, edit, or delete."}, status=400)
     status_by_action = {
         "confirm": Booking.Status.CONFIRMED,
         "cancel": Booking.Status.CANCELLED,
@@ -155,8 +266,31 @@ def booking_action(request, booking_id):
             return JsonResponse({"ok": False, "message": "Booking not found."}, status=404)
         if booking.status == Booking.Status.COMPLETED and action != "complete":
             return JsonResponse({"ok": False, "message": "A completed booking cannot be changed."}, status=409)
+        payment = PaymentTransaction.objects.select_for_update().filter(booking=booking).first()
+        if action == "edit":
+            payload = _payload(request)
+            try:
+                pickup = date.fromisoformat(str(payload.get("pickup_date")))
+                return_date = date.fromisoformat(str(payload.get("return_date")))
+            except (TypeError, ValueError):
+                return JsonResponse({"ok": False, "message": "Use valid pickup and return dates."}, status=400)
+            if payment and payment.status == PaymentTransaction.Status.PAID:
+                return JsonResponse({"ok": False, "message": "Paid booking dates cannot be edited."}, status=409)
+            if return_date < pickup:
+                return JsonResponse({"ok": False, "message": "Return date must be after pickup."}, status=400)
+            booking.pickup_date, booking.return_date = pickup, return_date
+            booking.save(update_fields=["pickup_date", "return_date", "updated_at"])
+            AuditLog.objects.create(actor=request.user, action="admin_booking_edited", entity_type="booking", entity_id=booking.id)
+            return JsonResponse({"ok": True, "message": "Booking dates updated."})
+        if action == "confirm" and (not payment or payment.status != PaymentTransaction.Status.PAID):
+            return JsonResponse({"ok": False, "message": "Only paid bookings can be confirmed."}, status=409)
+        if action == "cancel" and payment and payment.status == PaymentTransaction.Status.PAID:
+            return JsonResponse({"ok": False, "message": "A paid booking requires a refund before cancellation."}, status=409)
         booking.status = status_by_action[action]
         booking.save(update_fields=["status", "updated_at"])
+        if action == "cancel" and payment and payment.status == PaymentTransaction.Status.PENDING:
+            payment.status = PaymentTransaction.Status.CANCELLED
+            payment.save(update_fields=["status", "updated_at"])
         AuditLog.objects.create(
             actor=request.user,
             action=f"admin_booking_{action}",

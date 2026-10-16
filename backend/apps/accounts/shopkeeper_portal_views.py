@@ -11,7 +11,6 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from apps.bookings.models import Booking
-from apps.notifications.services import notify_user
 from apps.payments.models import PaymentTransaction
 from apps.vehicles.models import Vehicle
 from .models import ShopkeeperProfile, User
@@ -40,17 +39,17 @@ def _shopkeeper_only(view):
 @require_GET
 def shopkeeper_summary(request, profile):
     vehicles = profile.vehicles.all()
-    bookings = Booking.objects.filter(vehicle__shopkeeper=profile)
-    paid = PaymentTransaction.objects.filter(
-        booking__vehicle__shopkeeper=profile,
-        status=PaymentTransaction.Status.PAID,
+    paid_bookings = Booking.objects.filter(
+        vehicle__shopkeeper=profile,
+        payment__status=PaymentTransaction.Status.PAID,
     )
+    paid = PaymentTransaction.objects.filter(booking__in=paid_bookings)
     return JsonResponse({"ok": True, "profile": {"shop_name": profile.shop_name, "shop_address": profile.shop_address, "shop_description": profile.shop_description, "latitude": str(profile.latitude or ""), "longitude": str(profile.longitude or ""), "verification_status": profile.verification_status, "email": request.user.email, "phone": request.user.phone_number}, "summary": {
         "total_vehicles": vehicles.count(),
         "approved_vehicles": vehicles.filter(listing_status=Vehicle.ListingStatus.APPROVED).count(),
         "available_vehicles": vehicles.filter(listing_status=Vehicle.ListingStatus.APPROVED, is_available=True).count(),
-        "pending_reservations": bookings.filter(status=Booking.Status.PENDING).count(),
-        "paid_awaiting_action": PaymentTransaction.objects.filter(booking__vehicle__shopkeeper=profile, status=PaymentTransaction.Status.PAID, booking__status=Booking.Status.PENDING).count(),
+        "pending_reservations": paid_bookings.filter(status=Booking.Status.PENDING).count(),
+        "paid_awaiting_action": paid_bookings.filter(status=Booking.Status.PENDING).count(),
         "paid_bookings": paid.count(),
         "gross_earnings": paid.aggregate(total=Sum("amount"))["total"] or 0,
     }})
@@ -59,14 +58,15 @@ def shopkeeper_summary(request, profile):
 @_shopkeeper_only
 @require_GET
 def shopkeeper_reservations(request, profile):
-    bookings = Booking.objects.filter(vehicle__shopkeeper=profile).select_related("customer", "vehicle", "payment")[:100]
+    # A shop sees only completed online payments. Pending, failed and cancelled
+    # checkout attempts stay private to the customer and remain available to admins.
+    bookings = Booking.objects.filter(
+        vehicle__shopkeeper=profile,
+        payment__status=PaymentTransaction.Status.PAID,
+    ).select_related("customer", "vehicle", "payment")[:100]
     rows = []
     for booking in bookings:
-        try:
-            payment_status = booking.payment.status
-        except PaymentTransaction.DoesNotExist:
-            payment_status = PaymentTransaction.Status.PENDING
-        rows.append({"id": booking.id, "vehicle": booking.vehicle.display_name, "customer": booking.customer.get_full_name() or booking.customer.email, "customer_email": booking.customer.email, "customer_phone": booking.customer.phone_number, "pickup_date": booking.pickup_date.isoformat(), "return_date": booking.return_date.isoformat(), "total_amount": str(booking.total_amount), "status": booking.status, "payment_status": payment_status, "created_at": booking.created_at.isoformat()})
+        rows.append({"id": booking.id, "vehicle": booking.vehicle.display_name, "customer": booking.customer.get_full_name() or booking.customer.email, "customer_email": booking.customer.email, "customer_phone": booking.customer.phone_number, "pickup_date": booking.pickup_date.isoformat(), "return_date": booking.return_date.isoformat(), "total_amount": str(booking.total_amount), "status": booking.status, "payment_status": booking.payment.status, "created_at": booking.created_at.isoformat()})
     return JsonResponse({"ok": True, "reservations": rows})
 
 
@@ -89,7 +89,6 @@ def shopkeeper_reservation_action(request, profile, booking_id):
                 if payment_status != PaymentTransaction.Status.PAID:
                     return JsonResponse({"ok": False, "message": "Confirm the reservation only after its payment is verified."}, status=409)
                 booking.status = Booking.Status.CONFIRMED
-                customer_message = f"{profile.shop_name} confirmed your booking for {booking.vehicle.display_name}."
             else:
                 if payment_status == PaymentTransaction.Status.PAID:
                     return JsonResponse({"ok": False, "message": "This reservation has a verified payment. Contact support so a refund can be handled safely."}, status=409)
@@ -97,11 +96,9 @@ def shopkeeper_reservation_action(request, profile, booking_id):
                 if payment and payment.status == PaymentTransaction.Status.PENDING:
                     payment.status = PaymentTransaction.Status.CANCELLED
                     payment.save(update_fields=["status", "updated_at"])
-                customer_message = f"{profile.shop_name} could not accept your booking for {booking.vehicle.display_name}. No payment was collected."
             booking.save(update_fields=["status", "updated_at"])
     except Booking.DoesNotExist:
         return JsonResponse({"ok": False, "message": "Reservation not found."}, status=404)
-    notify_user(booking.customer, "Booking confirmed" if action == "CONFIRM" else "Booking not accepted", customer_message)
     return JsonResponse({"ok": True, "message": "Reservation confirmed." if action == "CONFIRM" else "Reservation declined safely."})
 
 

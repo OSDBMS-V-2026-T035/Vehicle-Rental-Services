@@ -1,9 +1,11 @@
 import json
 import re
 from decimal import Decimal, InvalidOperation
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
@@ -12,6 +14,10 @@ from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET
+from urllib.parse import urlparse, parse_qs, urlencode
+from django.utils import timezone
+from django.utils.dateparse import parse_date
 
 from .models import OTPChallenge, ShopkeeperProfile, User, phone_validator
 from .captcha import create_captcha, verify_captcha
@@ -73,8 +79,28 @@ def _clean_coordinate(value, minimum, maximum, field_name):
     return coordinate
 
 
+def _booking_redirect(value):
+    """Only preserve a validated local customer checkout handoff after auth."""
+    candidate = str(value or "").strip()
+    parsed = urlparse(candidate)
+    if parsed.scheme or parsed.netloc or parsed.path != "/user-portal/":
+        return "/user-portal/"
+    values = parse_qs(parsed.query)
+    try:
+        vehicle_id = int(values.get("vehicle_id", [""])[0])
+    except (TypeError, ValueError):
+        return "/user-portal/"
+    pickup = values.get("pickup_date", [""])[0]
+    return_date = values.get("return_date", [""])[0]
+    pickup_day = parse_date(pickup)
+    return_day = parse_date(return_date)
+    if vehicle_id < 1 or not pickup_day or not return_day or pickup_day < timezone.localdate() or return_day < pickup_day or return_day > pickup_day + timedelta(days=7):
+        return "/user-portal/"
+    return f"/user-portal/?{urlencode({'vehicle_id': vehicle_id, 'pickup_date': pickup, 'return_date': return_date, 'checkout': '1'})}"
+
+
 @ensure_csrf_cookie
-def portal_view(request, portal_role):
+def portal_view(request, portal_role, section=""):
     """Render role-specific placeholders while the real portals are being built."""
     if not request.user.is_authenticated:
         return redirect("/auth/")
@@ -98,11 +124,44 @@ def portal_view(request, portal_role):
         "user_email": request.user.email,
         "user_phone": request.user.phone_number,
         "user_email_verified": request.user.is_email_verified,
+        "portal_section": section,
     })
 
 @ensure_csrf_cookie
 def auth_page(request):
     return render(request, "auth.html")
+
+
+@login_required
+@require_GET
+def customer_profile_view(request):
+    if request.user.role != User.Role.USER:
+        return _error("Customer access only.", status=403)
+    return JsonResponse({"ok": True, "profile": {
+        "full_name": request.user.get_full_name(), "email": request.user.email,
+        "phone": request.user.phone_number, "email_verified": request.user.is_email_verified,
+    }})
+
+
+@login_required
+@require_POST
+def update_customer_profile_view(request):
+    if request.user.role != User.Role.USER:
+        return _error("Customer access only.", status=403)
+    payload = _payload(request)
+    try:
+        full_name = _clean_name(payload.get("full_name"))
+        phone = _clean_phone(payload.get("phone"))
+    except ValidationError as exc:
+        return _error(exc.messages[0])
+    if User.objects.exclude(pk=request.user.pk).filter(phone_number=phone).exists():
+        return _error("That phone number is already registered.", status=409)
+    first_name, *last_names = full_name.split(" ")
+    request.user.first_name = first_name
+    request.user.last_name = " ".join(last_names)
+    request.user.phone_number = phone
+    request.user.save(update_fields=["first_name", "last_name", "phone_number", "updated_at"])
+    return JsonResponse({"ok": True, "message": "Profile updated successfully.", "profile": {"full_name": request.user.get_full_name(), "phone": request.user.phone_number}})
 
 
 @require_POST
@@ -218,7 +277,7 @@ def signup_view(request):
         redirect = "/shopkeeper/"
     else:
         message = "Account created successfully. Welcome to RideHub!"
-        redirect = "/user-portal/"
+        redirect = _booking_redirect(payload.get("next"))
     return JsonResponse({"ok": True, "message": message, "redirect": redirect})
 
 
@@ -302,7 +361,7 @@ def login_view(request):
         else:
             message = "Login successful. Your shopkeeper workspace is ready."
     else:
-        redirect = "/user-portal/"
+        redirect = _booking_redirect(payload.get("next"))
         message = "Login successful. Welcome back!"
     return JsonResponse({"ok": True, "message": message, "redirect": redirect})
 

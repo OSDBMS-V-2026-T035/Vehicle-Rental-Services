@@ -1,3 +1,4 @@
+import json
 import math
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
@@ -14,6 +15,26 @@ from apps.accounts.models import ShopkeeperProfile, User
 from apps.bookings.models import Booking
 from django.db import transaction
 from .models import Vehicle
+
+
+def _payload(request):
+    """Read JSON requests safely while retaining form-request compatibility."""
+    if request.content_type and request.content_type.startswith("application/json"):
+        try:
+            return json.loads(request.body or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return {}
+    return request.POST
+
+
+def _validate_vehicle_image(upload):
+    """Validate an uploaded vehicle image before it becomes a model FieldFile."""
+    if not upload:
+        return
+    if not (upload.content_type or "").startswith("image/"):
+        raise ValidationError("Vehicle photo must be an image file.")
+    if upload.size > 5 * 1024 * 1024:
+        raise ValidationError("Vehicle photo must be 5 MB or smaller.")
 
 
 def _distance_km(lat1, lon1, lat2, lon2):
@@ -104,6 +125,8 @@ def create_vehicle(request):
     if request.POST.get("vehicle_type", "").strip().lower() == "cycle":
         return JsonResponse({"ok": False, "message": "Bicycle listings are no longer supported."}, status=400)
     try:
+        uploaded_image = request.FILES.get("image")
+        _validate_vehicle_image(uploaded_image)
         vehicle = Vehicle(
             shopkeeper=profile,
             vehicle_type=request.POST.get("vehicle_type", "").strip().lower(),
@@ -119,18 +142,13 @@ def create_vehicle(request):
             quantity=int(request.POST.get("quantity", "1")),
             available_quantity=int(request.POST.get("quantity", "1")),
             description=request.POST.get("description", "").strip(),
-            image=request.FILES.get("image"),
+            image=uploaded_image,
             # A verified shopkeeper has already passed the platform gate. New
             # inventory is therefore searchable immediately; administrators
             # retain moderation controls for exceptional cases.
             listing_status=Vehicle.ListingStatus.APPROVED,
             admin_note="Published by verified shopkeeper; available for audit.",
         )
-        if vehicle.image:
-            if not vehicle.image.content_type.startswith("image/"):
-                raise ValidationError("Vehicle photo must be an image file.")
-            if vehicle.image.size > 5 * 1024 * 1024:
-                raise ValidationError("Vehicle photo must be 5 MB or smaller.")
         vehicle.full_clean()
         vehicle.save()
     except (ValueError, InvalidOperation, ValidationError) as exc:
@@ -174,6 +192,39 @@ def remove_vehicle(request, vehicle_id):
 
 
 @login_required
+@require_POST
+def update_vehicle_inventory(request, vehicle_id):
+    """Update an owned listing's fleet size without overbooking existing reservations."""
+    if request.user.role != User.Role.SHOPKEEPER:
+        return JsonResponse({"ok": False, "message": "Only shopkeepers can update fleet inventory."}, status=403)
+    profile = getattr(request.user, "shopkeeper_profile", None)
+    if not profile or profile.verification_status != ShopkeeperProfile.VerificationStatus.VERIFIED:
+        return JsonResponse({"ok": False, "message": "Admin verification is required before changing inventory."}, status=403)
+    try:
+        quantity = int(_payload(request).get("quantity"))
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "message": "Enter a whole-number fleet quantity."}, status=400)
+    if not 1 <= quantity <= 999:
+        return JsonResponse({"ok": False, "message": "Fleet quantity must be between 1 and 999."}, status=400)
+    with transaction.atomic():
+        try:
+            vehicle = Vehicle.objects.select_for_update().get(pk=vehicle_id, shopkeeper=profile)
+        except Vehicle.DoesNotExist:
+            return JsonResponse({"ok": False, "message": "Vehicle not found in your fleet."}, status=404)
+        reserved = Booking.objects.filter(
+            vehicle=vehicle,
+            status__in=[Booking.Status.PENDING, Booking.Status.CONFIRMED],
+            return_date__gte=timezone.localdate(),
+        ).count()
+        if quantity < reserved:
+            return JsonResponse({"ok": False, "message": f"This listing has {reserved} active or upcoming reservation(s). Increase quantity or resolve them first."}, status=409)
+        vehicle.quantity = quantity
+        vehicle.available_quantity = max(0, quantity - reserved)
+        vehicle.save(update_fields=["quantity", "available_quantity", "updated_at"])
+    return JsonResponse({"ok": True, "message": "Fleet quantity updated successfully."})
+
+
+@login_required
 @require_GET
 def my_vehicles(request):
     if request.user.role != User.Role.SHOPKEEPER:
@@ -181,6 +232,36 @@ def my_vehicles(request):
     profile = getattr(request.user, "shopkeeper_profile", None)
     vehicles = profile.vehicles.all() if profile else Vehicle.objects.none()
     return JsonResponse({"ok": True, "vehicles": [_vehicle_payload(vehicle) for vehicle in vehicles]})
+
+
+@require_GET
+def vehicle_detail(request, vehicle_id):
+    """Return the exact listing selected before authentication, with date-aware availability."""
+    date_error = _date_error(request)
+    if date_error:
+        return JsonResponse({"ok": False, "message": date_error}, status=400)
+    vehicle = Vehicle.objects.filter(
+        pk=vehicle_id,
+        listing_status=Vehicle.ListingStatus.APPROVED,
+        is_available=True,
+        quantity__gt=0,
+        shopkeeper__verification_status=ShopkeeperProfile.VerificationStatus.VERIFIED,
+        shopkeeper__user__is_active=True,
+    ).select_related("shopkeeper").first()
+    if vehicle is None:
+        return JsonResponse({"ok": False, "message": "This vehicle is no longer available."}, status=404)
+    from django.utils.dateparse import parse_date
+    pickup = parse_date(request.GET.get("pickup_date", "")) if request.GET.get("pickup_date") else None
+    return_date = parse_date(request.GET.get("return_date", "")) if request.GET.get("return_date") else None
+    reserved = None
+    if pickup and return_date:
+        reserved = Booking.objects.filter(
+            vehicle=vehicle,
+            status__in=[Booking.Status.PENDING, Booking.Status.CONFIRMED],
+            pickup_date__lte=return_date,
+            return_date__gte=pickup,
+        ).count()
+    return JsonResponse({"ok": True, "vehicle": _vehicle_payload(vehicle, reserved_units=reserved)})
 
 
 @require_GET
