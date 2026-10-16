@@ -152,7 +152,11 @@ function renderLiveResults(items, kind) {
         const title = kind === 'shops' ? item.name : item.name;
         const subtitle = kind === 'shops' ? `${item.vehicle_count} approved vehicle(s)` : `₹${item.daily_rate}/day · ${item.shop}`;
         const image = kind === 'vehicles' && item.image_url ? `<img class="live-result-thumb" src="${escapeHtml(item.image_url)}" alt="${escapeHtml(title)}">` : '';
-        return `<article class="live-result-card">${image}<div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(subtitle)}</small><p>${escapeHtml(item.address || '')}${item.distance_km !== undefined ? ` · ${item.distance_km} km away` : ''}</p></div>${item.directions_url ? `<a class="result-direction" href="${escapeHtml(item.directions_url)}" target="_blank" rel="noopener">Directions ↗</a>` : ''}</article>`;
+        const unavailable = kind === 'vehicles' && item.availability_status === 'UNAVAILABLE';
+        const bookingParams = new URLSearchParams({ vehicle_id: item.id, pickup_date: pickupDate.value, return_date: returnDate.value, checkout: '1' });
+        const authUrl = `/auth/?role=USER&mode=login&next=${encodeURIComponent(`/user-portal/?${bookingParams.toString()}`)}`;
+        const book = kind === 'vehicles' ? `<a class="result-direction${unavailable ? ' is-disabled' : ''}" ${unavailable ? 'aria-disabled="true"' : `href="${authUrl}"`}>${unavailable ? 'Unavailable' : 'Book this ride →'}</a>` : '';
+        return `<article class="live-result-card">${image}<div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(subtitle)}</small><p>${escapeHtml(item.address || '')}${item.distance_km !== undefined ? ` · ${item.distance_km} km away` : ''}</p>${kind === 'vehicles' ? `<small>${escapeHtml(item.availability_message || '')}</small>` : ''}</div>${book}${item.directions_url ? `<a class="result-direction" href="${escapeHtml(item.directions_url)}" target="_blank" rel="noopener">Directions ↗</a>` : ''}</article>`;
     }).join('');
 }
 

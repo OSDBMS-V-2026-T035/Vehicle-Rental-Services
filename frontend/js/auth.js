@@ -209,6 +209,7 @@ refreshCaptcha(); }
 }
 
 const query = new URLSearchParams(window.location.search);
+const requestedNext = query.get('next') || '';
 setRole(['USER', 'SHOPKEEPER', 'ADMIN'].includes(query.get('role')) ? query.get('role') : 'USER');
 setMode(query.get('mode') === 'signup' ? 'signup' : 'login');
 
@@ -279,7 +280,7 @@ const originalSubmitAuth = submitAuth;
 submitAuth = async function(url, body) {
     const captcha = captchaPayload();
     if (!captcha.captcha_id || captcha.captcha_answer.length !== 5) { setError('captcha-answer', 'Enter the 5-character security code.'); return; }
-    await originalSubmitAuth(url, {...body, ...captcha});
+    await originalSubmitAuth(url, {...body, next: requestedNext, ...captcha});
     placeCaptcha();
 refreshCaptcha();
 };

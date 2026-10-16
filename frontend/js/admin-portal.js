@@ -1,106 +1,33 @@
 (() => {
-  const app = window.RIDEHUB_PORTAL || {};
-  if (app.role !== 'ADMIN') return;
-
-  const content = document.querySelector('#portal-content');
-  const nav = document.querySelector('#portal-nav');
-  const csrf = app.csrf || '';
-  let activeView = 'overview';
-  const pages = [
-    ['OPERATIONS', [['overview', '◉', 'Platform overview'], ['reviews', '◈', 'Review queues'], ['users', '◉', 'Account governance'], ['earnings', '₹', 'Earnings & payments']]],
-    ['GOVERNANCE', [['audit', '◌', 'Audit & security log']]],
-  ];
-  const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
-  const api = async (url, options = {}) => {
-    const response = await fetch(url, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf, ...(options.headers || {}) }, ...options });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.ok) throw new Error(data.message || 'Request could not be completed.');
-    return data;
-  };
-  const empty = text => `<div class="empty-state"><div><div class="empty-icon">◌</div><h2>No records</h2><p>${esc(text)}</p></div></div>`;
-  const message = (id, text, bad = false) => { const target = document.querySelector(`#${id}`); if (target) target.innerHTML = `<div class="inline-message ${bad ? 'error' : ''}">${esc(text)}</div>`; };
-
-  function renderNav() {
-    nav.innerHTML = pages.map(([group, links]) => `<div class="nav-group">${group}</div>${links.map(([id, icon, label]) => `<button class="nav-item ${activeView === id ? 'active' : ''}" data-admin-view="${id}"><span class="nav-icon">${icon}</span>${label}</button>`).join('')}`).join('');
-  }
-
-  function shell(title, detail) {
-    document.querySelector('#crumb-label').textContent = title;
-    content.innerHTML = `<div class="hero-line"><div><p class="eyebrow">ADMIN CONTROL PANEL</p><h1>${esc(title)}</h1><p>${esc(detail)}</p></div><span class="development-pill">PROTECTED OPERATIONS</span></div>`;
-  }
-
-  async function overview() {
-    activeView = 'overview'; renderNav(); shell('Platform overview', 'Moderate marketplace access and inspect live operational queues.');
-    content.insertAdjacentHTML('beforeend', '<div class="loading-block">Loading control centre…</div>');
-    try {
-      const { summary: s } = await api('/api/admin/summary/');
-      content.querySelector('.loading-block').outerHTML = `<div class="dashboard-grid">
-        <article class="card stat-card"><span class="stat-icon">◉</span><h3>${s.customers}</h3><p>Customers</p></article>
-        <article class="card stat-card"><span class="stat-icon">▥</span><h3>${s.pending_shops}</h3><p>Shop reviews</p></article>
-        <article class="card stat-card"><span class="stat-icon">◈</span><h3>${s.pending_vehicles}</h3><p>Vehicle reviews</p></article>
-        <article class="card stat-card"><span class="stat-icon">▣</span><h3>${s.active_bookings}</h3><p>Active bookings</p></article>
-        <article class="card stat-card"><span class="stat-icon">₹</span><h3>₹${Number(s.gross_earnings || 0).toLocaleString('en-IN')}</h3><p>Gross earnings</p></article>
-        <article class="card wide-card"><div class="module-list">
-          <button class="module-row" data-admin-view="reviews"><span class="mini-icon">◈</span><span><strong>Review queues</strong><small>Approve or reject shopkeeper and vehicle submissions.</small></span><span class="status-tag">OPEN</span></button>
-          <button class="module-row" data-admin-view="users"><span class="mini-icon">◉</span><span><strong>Account governance</strong><small>Approve, revoke or permanently ban platform accounts.</small></span><span class="status-tag">OPEN</span></button>
-          <button class="module-row" data-admin-view="earnings"><span class="mini-icon">₹</span><span><strong>Earnings & payments</strong><small>Inspect verified Razorpay receipts and marketplace totals.</small></span><span class="status-tag">OPEN</span></button>
-          <button class="module-row" data-admin-view="audit"><span class="mini-icon">◌</span><span><strong>Audit trail</strong><small>Review recorded administrative actions.</small></span><span class="status-tag">OPEN</span></button>
-        </div></article></div>`;
-    } catch (error) { content.innerHTML = empty(error.message); }
-  }
-
-  async function reviews() {
-    activeView = 'reviews'; renderNav(); shell('Review queues', 'Approve or reject marketplace submissions. Every action is audited.');
-    content.insertAdjacentHTML('beforeend', '<article class="card"><div class="loading-block">Loading review queues…</div></article>');
-    try {
-      const data = await api('/api/admin/review-queues/');
-      content.querySelector('.card').innerHTML = `<div id="admin-message"></div><h2>Pending shopkeepers</h2>${data.shopkeepers.length ? `<div class="table-wrap"><table class="user-table"><thead><tr><th>Shop</th><th>Contact</th><th>Fleet</th><th>Action</th></tr></thead><tbody>${data.shopkeepers.map(item => `<tr><td><strong>${esc(item.shop_name)}</strong><small>${esc(item.address)}</small></td><td>${esc(item.email)}<small>${esc(item.phone)}</small></td><td>${item.vehicle_count}</td><td><button class="row-action" data-admin-action-url="/api/admin/shopkeepers/${item.id}/action/" data-action="approve">Approve</button> <button class="row-action danger" data-admin-action-url="/api/admin/shopkeepers/${item.id}/action/" data-action="reject">Reject</button></td></tr>`).join('')}</tbody></table></div>` : empty('No shopkeeper requests pending.')}<h2 style="margin-top:24px">Pending vehicles</h2>${data.vehicles.length ? `<div class="table-wrap"><table class="user-table"><thead><tr><th>Vehicle</th><th>Shop</th><th>Rate</th><th>Action</th></tr></thead><tbody>${data.vehicles.map(item => `<tr><td><strong>${esc(item.name)}</strong><small>${esc(item.registration_number)}</small></td><td>${esc(item.shop)}</td><td>₹${esc(item.daily_rate)}</td><td><button class="row-action" data-admin-action-url="/api/admin/vehicles/${item.id}/action/" data-action="approve">Approve</button> <button class="row-action danger" data-admin-action-url="/api/admin/vehicles/${item.id}/action/" data-action="reject">Reject</button></td></tr>`).join('')}</tbody></table></div>` : empty('No vehicle submissions pending.')}`;
-    } catch (error) { content.querySelector('.card').innerHTML = empty(error.message); }
-  }
-
-  async function users() {
-    activeView = 'users'; renderNav(); shell('Account governance', 'Approve shopkeepers once, revoke access when required, or permanently ban unsafe accounts.');
-    content.insertAdjacentHTML('beforeend', '<article class="card"><div class="loading-block">Loading customers…</div></article>');
-    try {
-      const data = await api('/api/admin/review-queues/');
-      content.querySelector('.card').innerHTML = data.users.length ? `<div id="admin-message"></div><div class="table-wrap"><table class="user-table"><thead><tr><th>Account</th><th>Contact</th><th>Status</th><th>Action</th></tr></thead><tbody>${data.users.map(item => { const banned = item.permanently_banned; const action = item.active ? 'revoke' : (banned ? '' : 'restore'); const banUrl = item.action_url; return `<tr><td><strong>${esc(item.name)}</strong><small>${esc(item.role)}</small></td><td>${esc(item.email)}<small>${esc(item.phone)}</small></td><td><span class="payment-state ${item.active ? 'PAID' : 'CANCELLED'}">${banned ? 'PERMANENTLY BANNED' : (item.active ? 'ACTIVE' : 'REVOKED')}</span></td><td>${action ? `<button class="row-action ${item.active ? 'danger' : ''}" data-admin-action-url="${item.action_url}" data-action="${action}">${item.active ? 'Revoke' : 'Restore'}</button>` : ''}${!banned ? ` <button class="row-action danger" data-admin-action-url="${banUrl}" data-action="permanent_ban">Permanent ban</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>` : empty('No platform accounts found.');
-    } catch (error) { content.querySelector('.card').innerHTML = empty(error.message); }
-  }
-
-  async function earnings() {
-    activeView = 'earnings'; renderNav(); shell('Earnings & payments', 'Read-only financial visibility for verified RideHub receipts.');
-    content.insertAdjacentHTML('beforeend', '<article class="card"><div class="loading-block">Loading payment ledger…</div></article>');
-    try {
-      const data = await api('/api/admin/earnings/');
-      content.querySelector('.card').innerHTML = `<div class="dashboard-grid"><article class="card stat-card"><span class="stat-icon">₹</span><h3>₹${Number(data.total || 0).toLocaleString('en-IN')}</h3><p>Verified gross earnings</p></article><article class="card stat-card"><span class="stat-icon">▣</span><h3>${data.count}</h3><p>Paid transactions</p></article></div>${data.payments.length ? `<div class="table-wrap"><table class="user-table"><thead><tr><th>Receipt</th><th>Customer</th><th>Vehicle / shop</th><th>Amount</th><th>Time</th></tr></thead><tbody>${data.payments.map(item => `<tr><td>#${esc(item.id)}</td><td>${esc(item.customer)}</td><td><strong>${esc(item.vehicle)}</strong><small>${esc(item.shop)}</small></td><td>₹${Number(item.amount).toLocaleString('en-IN')}</td><td>${new Intl.DateTimeFormat('en-IN',{dateStyle:'medium',timeStyle:'short'}).format(new Date(item.created_at))}</td></tr>`).join('')}</tbody></table></div>` : empty('No verified payments yet.')}`;
-    } catch (error) { content.querySelector('.card').innerHTML = empty(error.message); }
-  }
-
-  async function audit() {
-    activeView = 'audit'; renderNav(); shell('Audit & security log', 'Recent administrative actions retained for operational accountability.');
-    content.insertAdjacentHTML('beforeend', '<article class="card"><div class="loading-block">Loading audit events…</div></article>');
-    try {
-      const data = await api('/api/admin/audit/');
-      content.querySelector('.card').innerHTML = data.events.length ? `<div class="table-wrap"><table class="user-table"><thead><tr><th>Action</th><th>Target</th><th>Actor</th><th>Time</th></tr></thead><tbody>${data.events.map(item => `<tr><td><strong>${esc(item.action)}</strong></td><td>${esc(item.entity_type)} #${esc(item.entity_id)}</td><td>${esc(item.actor)}</td><td>${new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.created_at))}</td></tr>`).join('')}</tbody></table></div>` : empty('No audit records yet.');
-    } catch (error) { content.querySelector('.card').innerHTML = empty(error.message); }
-  }
-
-  async function performAction(button) {
-    if (!confirm(`${button.dataset.action} this item?`)) return;
-    try {
-      const result = await api(button.dataset.adminActionUrl, { method: 'POST', body: JSON.stringify({ action: button.dataset.action }) });
-      message('admin-message', result.message); setTimeout(() => ({ reviews, users }[activeView]()), 500);
-    } catch (error) { message('admin-message', error.message, true); }
-  }
-
-  document.addEventListener('click', event => {
-    const view = event.target.closest('[data-admin-view]')?.dataset.adminView;
-    if (view) { event.preventDefault(); ({ overview, reviews, users, earnings, audit }[view] || overview)(); return; }
-    const button = event.target.closest('[data-admin-action-url]');
-    if (button) performAction(button);
-  });
-  document.querySelector('#mobile-menu').addEventListener('click', () => document.querySelector('#portal-sidebar').classList.toggle('open'));
-  document.querySelector('#profile-shortcut').addEventListener('click', audit);
-  document.querySelector('#logout-button').addEventListener('click', async () => { try { await api('/api/auth/logout/', { method: 'POST', body: '{}' }); } finally { window.location.assign('/auth/'); } });
-  overview();
+  const app=window.RIDEHUB_PORTAL||{}; if(app.role!=='ADMIN')return;
+  const content=document.querySelector('#portal-content'),nav=document.querySelector('#portal-nav'),csrf=app.csrf||'';
+  const esc=v=>String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const money=v=>`₹${Number(v||0).toLocaleString('en-IN')}`;
+  const defs=[['COMMAND CENTRE',[['overview','◉','Overview'],['shopkeepers','⌖','Shopkeepers'],['vehicles','▤','Vehicle listings'],['bookings','▣','Bookings']]],['FINANCE & GOVERNANCE',[['customers','◉','Customers'],['payments','₹','Payments'],['audit','◌','Audit trail']]]]; let active='overview';
+  const api=async(url,options={})=>{const r=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRFToken':csrf,...(options.headers||{})},...options});const d=await r.json().catch(()=>({}));if(!r.ok||d.ok===false)throw Error(d.message||'Request could not be completed.');return d;};
+  const state=v=>`<span class="payment-state ${['PAID','VERIFIED','APPROVED','CONFIRMED','ACTIVE'].includes(v)?'PAID':v==='PENDING'?'PENDING':'CANCELLED'}">${esc(v)}</span>`;
+  const action=(u,a,l,d=false)=>`<button class="row-action ${d?'danger':''}" data-admin-action-url="${u}" data-action="${a}">${l}</button>`;
+  const empty=t=>`<div class="empty-state"><div><div class="empty-icon">◌</div><h2>No records</h2><p>${esc(t)}</p></div></div>`;
+  const table=(heads,rows,msg)=>rows.length?`<div class="table-wrap"><table class="user-table"><thead><tr>${heads.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`:empty(msg);
+  function navRender(){nav.innerHTML=defs.map(([g,links])=>`<div class="nav-group">${g}</div>${links.map(([id,i,t])=>`<button class="nav-item ${active===id?'active':''}" data-admin-view="${id}"><span class="nav-icon">${i}</span>${t}</button>`).join('')}`).join('');}
+  function shell(title,detail,badge='ADMIN WORKSPACE'){document.querySelector('#crumb-label').textContent=title;content.innerHTML=`<div class="hero-line"><div><p class="eyebrow">RIDEHUB ADMIN</p><h1>${esc(title)}</h1><p>${esc(detail)}</p></div><span class="development-pill">${badge}</span></div>`;}
+  function tools(filters=[]){return `<div class="admin-toolbar"><label><span>Search</span><input id="admin-search" type="search" placeholder="Search records"></label>${filters.length?`<label><span>Status</span><select id="admin-filter"><option value="">All</option>${filters.map(v=>`<option>${esc(v)}</option>`).join('')}</select></label>`:''}</div>`;}
+  function row(kind,r,status){return `data-kind="${kind}" data-row="${esc(JSON.stringify(r))}" data-search="${esc(Object.values(r).join(' '))}" data-status="${esc(status||'')}"`;}
+  function filter(){const q=(document.querySelector('#admin-search')?.value||'').toLowerCase(),f=(document.querySelector('#admin-filter')?.value||'').toLowerCase();document.querySelectorAll('[data-row]').forEach(r=>r.hidden=!!(q&&!r.dataset.search.toLowerCase().includes(q)||f&&r.dataset.status.toLowerCase()!==f));}
+  function bindTools(){document.querySelector('#admin-search')?.addEventListener('input',filter);document.querySelector('#admin-filter')?.addEventListener('change',filter);}
+  function modal(html){const o=document.createElement('div');o.className='checkout-overlay admin-record-overlay';o.innerHTML=html;document.body.appendChild(o);const close=()=>o.remove();o.querySelector('.modal-close').onclick=close;o.onclick=e=>{if(e.target===o)close();};return o;}
+  function detail(r){const photo=r.image_url?`<img class="admin-passport-photo vehicle-photo" src="${esc(r.image_url)}" alt="${esc(r.name||r.vehicle)}">`:`<div class="admin-passport-photo">${esc((r.name||r.vehicle||'R').slice(0,1))}</div>`;const fields=Object.entries(r).filter(([k])=>!['action_url','image_url'].includes(k)).map(([k,v])=>`<div><dt>${esc(k.replaceAll('_',' '))}</dt><dd>${esc(v === true ? 'Yes' : v === false ? 'No' : v || '—')}</dd></div>`).join('');modal(`<section class="checkout-modal admin-record-modal"><button class="modal-close">×</button><div class="admin-record-heading">${photo}<div><p class="user-eyebrow">COMPLETE RECORD</p><h2>${esc(r.name||r.vehicle||`Record #${r.id}`)}</h2><p class="modal-subtitle">All saved information</p></div></div><dl class="admin-record-details">${fields}</dl></section>`);}
+  function edit(r,kind){const fields=kind==='shopkeeper'?[['shop_name','Shop name',r.name],['shop_address','Manual shop address',r.address],['shop_description','Shop description',r.description||'','textarea'],['latitude','Current latitude',r.latitude||''],['longitude','Current longitude',r.longitude||'']]:kind==='vehicle'?[['daily_rate','Daily rate (₹)',r.rate,'number'],['quantity','Fleet quantity',r.quantity,'number']]:kind==='booking'?[['pickup_date','Pickup date',r.pickup,'date'],['return_date','Return date',r.return_date,'date']]:[['full_name','Full name',r.name],['phone','Mobile number',r.phone||'']];const inputs=fields.map(([n,l,v,t])=>`<label>${l}${t==='textarea'?`<textarea name="${n}" rows="3">${esc(v)}</textarea>`:`<input name="${n}" type="${t||'text'}" value="${esc(v)}" required>`}</label>`).join('');const o=modal(`<section class="checkout-modal admin-record-modal"><button class="modal-close">×</button><p class="user-eyebrow">EDIT RECORD</p><h2>${esc(r.name||r.vehicle)}</h2><p class="modal-subtitle">Update the saved information, then save.</p><form class="checkout-form admin-edit-form">${inputs}<p class="checkout-message"></p><button class="user-primary-action">Save changes <b>→</b></button></form></section>`);o.querySelector('form').onsubmit=async e=>{e.preventDefault();try{const result=await api(r.action_url,{method:'POST',body:JSON.stringify({action:'edit',...Object.fromEntries(new FormData(e.currentTarget).entries())})});o.querySelector('.checkout-message').textContent=result.message;setTimeout(()=>{o.remove();load(active,false);},450);}catch(err){o.querySelector('.checkout-message').textContent=err.message;o.querySelector('.checkout-message').className='checkout-message error';}};}
+  async function catalog(resource,title,description,filters,render){shell(title,description);content.insertAdjacentHTML('beforeend','<article class="card"><div class="loading-block">Loading records…</div></article>');try{const data=await api(`/api/admin/catalog/${resource}/`),card=content.querySelector('.card');card.innerHTML=`<div id="admin-message"></div>${tools(filters)}${render(data.rows)}`;bindTools();}catch(e){content.querySelector('.card').innerHTML=empty(e.message);}}
+  const shopkeepers=()=>catalog('shopkeepers','Shopkeepers','Search, inspect, edit and control partner accounts.',['PENDING','VERIFIED','REJECTED','REVOKED'],rows=>table(['Shop','Contact','Fleet','Status','Actions'],rows.map(r=>`<tr ${row('shopkeeper',r,r.status)}><td><strong>${esc(r.name)}</strong><small>${esc(r.address)}</small></td><td>${esc(r.email)}<small>${esc(r.phone)}</small></td><td>${r.vehicle_count}</td><td>${state(r.status)}</td><td class="admin-actions"><button class="row-action" data-view>View</button><button class="row-action" data-edit>Edit</button>${r.status!=='VERIFIED'?action(r.action_url,'approve','Approve'):''} ${action(r.action_url,'delete','Delete',true)}</td></tr>`),'No shopkeepers found.'));
+  const vehicles=()=>catalog('vehicles','Vehicle listings','Search, inspect, edit and archive listings.',['PENDING','APPROVED','REJECTED'],rows=>table(['Vehicle','Shop','Fleet & fare','Status','Actions'],rows.map(r=>`<tr ${row('vehicle',r,r.status)}><td><strong>${esc(r.name)}</strong><small>${esc(r.registration_number)}</small></td><td>${esc(r.shop)}</td><td>${r.quantity}<small>${money(r.rate)}/day</small></td><td>${state(r.status)}</td><td class="admin-actions"><button class="row-action" data-view>View</button><button class="row-action" data-edit>Edit</button>${r.status!=='APPROVED'?action(r.action_url,'approve','Approve'):''} ${action(r.action_url,'delete','Delete',true)}</td></tr>`),'No vehicle listings found.'));
+  const bookings=()=>catalog('bookings','Booking operations','Search, inspect and control booking records.',['PENDING','CONFIRMED','CANCELLED','COMPLETED'],rows=>table(['Ride','Customer & dates','Payment','Booking','Actions'],rows.map(r=>`<tr ${row('booking',r,r.status)}><td><strong>${esc(r.vehicle)}</strong><small>${esc(r.shop)}</small></td><td>${esc(r.customer)}<small>${esc(r.pickup)} → ${esc(r.return_date)}</small></td><td>${state(r.payment_status)}<small>${money(r.amount)}</small></td><td>${state(r.status)}</td><td class="admin-actions"><button class="row-action" data-view>View</button><button class="row-action" data-edit>Edit</button>${r.status==='PENDING'&&r.payment_status==='PAID'?action(r.action_url,'confirm','Confirm'):''} ${r.status==='CONFIRMED'?action(r.action_url,'complete','Complete'):''} ${!['CANCELLED','COMPLETED'].includes(r.status)?action(r.action_url,'delete','Delete',true):''}</td></tr>`),'No bookings found.'));
+  const customers=()=>catalog('customers','Customers','Search, inspect, edit and control customer accounts.',['ACTIVE','REVOKED','PERMANENTLY BANNED'],rows=>table(['Customer','Contact','Status','Actions'],rows.map(r=>{const s=r.banned?'PERMANENTLY BANNED':r.active?'ACTIVE':'REVOKED';return `<tr ${row('customer',r,s)}><td><strong>${esc(r.name)}</strong></td><td>${esc(r.email)}<small>${esc(r.phone)}</small></td><td>${state(s)}</td><td class="admin-actions"><button class="row-action" data-view>View</button><button class="row-action" data-edit>Edit</button>${r.active?action(r.action_url,'revoke','Revoke',true):!r.banned?action(r.action_url,'restore','Restore'):''} ${action(r.action_url,'delete','Delete',true)}</td></tr>`;}),'No customer accounts found.'));
+  async function overview(){shell('Operations overview','Direct access to every searchable management workspace.','CONTROL CENTRE');content.insertAdjacentHTML('beforeend','<div class="loading-block">Loading platform health…</div>');try{const {summary:s}=await api('/api/admin/summary/');content.querySelector('.loading-block').outerHTML=`<div class="dashboard-grid">${[['◉',s.customers,'Customers'],['⌖',s.pending_shops,'Shop reviews'],['▤',s.pending_vehicles,'Vehicle reviews'],['▣',s.active_bookings,'Active bookings'],['₹',money(s.gross_earnings),'Verified revenue']].map(([i,n,l])=>`<article class="card stat-card"><span class="stat-icon">${i}</span><h3>${n}</h3><p>${l}</p></article>`).join('')}</div>`;}catch(e){content.innerHTML=empty(e.message);}}
+  async function payments(){shell('Payment ledger','Search verified, immutable payment receipts.','FINANCE');content.insertAdjacentHTML('beforeend','<article class="card"><div class="loading-block">Loading receipts…</div></article>');try{const d=await api('/api/admin/earnings/'),card=content.querySelector('.card');card.innerHTML=`${tools()}${table(['Receipt','Customer','Vehicle','Amount','Created','Action'],d.payments.map(r=>`<tr ${row('payment',r,'PAID')}><td>#${r.id}</td><td>${esc(r.customer)}</td><td>${esc(r.vehicle)}<small>${esc(r.shop)}</small></td><td>${money(r.amount)}</td><td>${new Intl.DateTimeFormat('en-IN',{dateStyle:'medium',timeStyle:'short'}).format(new Date(r.created_at))}</td><td><button class="row-action" data-view>View</button></td></tr>`),'No verified payments yet.')}`;bindTools();}catch(e){content.innerHTML=empty(e.message);}}
+  async function audit(){shell('Audit trail','Search immutable operational history.','GOVERNANCE');content.insertAdjacentHTML('beforeend','<article class="card"><div class="loading-block">Loading audit…</div></article>');try{const d=await api('/api/admin/audit/'),card=content.querySelector('.card');card.innerHTML=`${tools()}${table(['Action','Target','Actor','Time'],d.events.map(r=>`<tr ${row('audit',r,'')}><td>${esc(r.action)}</td><td>${esc(r.entity_type)} #${r.entity_id}</td><td>${esc(r.actor)}</td><td>${new Intl.DateTimeFormat('en-IN',{dateStyle:'medium',timeStyle:'short'}).format(new Date(r.created_at))}</td></tr>`),'No audit events.')}`;bindTools();}catch(e){content.innerHTML=empty(e.message);}}
+  async function doAction(b){if(!confirm(`${b.dataset.action} this record?`))return;try{const d=await api(b.dataset.adminActionUrl,{method:'POST',body:JSON.stringify({action:b.dataset.action})});document.querySelector('#admin-message').innerHTML=`<div class="inline-message">${esc(d.message)}</div>`;setTimeout(()=>load(active,false),400);}catch(e){document.querySelector('#admin-message').innerHTML=`<div class="inline-message error">${esc(e.message)}</div>`;}}
+  function get(btn){const tr=btn.closest('tr');return [JSON.parse(tr.dataset.row),tr.dataset.kind];}
+  function load(v,navigate=true){const valid=defs.flatMap(([,x])=>x.map(([id])=>id)),next=valid.includes(v)?v:'overview';if(navigate&&next!==active){location.assign(next==='overview'?'/control-panel/':`/control-panel/${next}/`);return;}active=next;navRender();({overview,shopkeepers,vehicles,bookings,customers,payments,audit}[active]||overview)();window.scrollTo({top:0});}
+  document.addEventListener('click',e=>{const v=e.target.closest('[data-admin-view]')?.dataset.adminView;if(v)return load(v);const b=e.target.closest('[data-admin-action-url]');if(b)return doAction(b);const view=e.target.closest('[data-view]');if(view){const [r]=get(view);return detail(r);}const editBtn=e.target.closest('[data-edit]');if(editBtn){const [r,k]=get(editBtn);return edit(r,k);}});document.querySelector('#mobile-menu')?.addEventListener('click',()=>document.querySelector('#portal-sidebar').classList.toggle('open'));document.querySelector('#logout-button')?.addEventListener('click',async()=>{try{await api('/api/auth/logout/',{method:'POST'});}finally{location.assign('/auth/');}});active=app.section||'overview';load(active,false);
 })();

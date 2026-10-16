@@ -81,8 +81,10 @@
                         <label class="field-group">
                             <span>Location</span>
                             <span class="input-shell location-shell"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2.3"/></svg><input id="location" data-place-autocomplete="true" autocomplete="street-address" value="Dehradun, Uttarakhand" aria-label="Location" placeholder="Search a city or area"><button class="field-action" type="button" data-use-current-location data-location-target="location" aria-label="Use current location" title="Use current location"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg></button></span>
-                            <input type="hidden" id="location-latitude" name="latitude">
-                            <input type="hidden" id="location-longitude" name="longitude">
+                            <!-- Keep the default Dehradun search location spatially usable even
+                                 before the visitor selects browser geolocation or a Maps result. -->
+                            <input type="hidden" id="location-latitude" name="latitude" value="30.316494">
+                            <input type="hidden" id="location-longitude" name="longitude" value="78.032191">
                             <input type="hidden" id="location-place-id" name="place_id">
                         </label>
                         <label class="field-group">
