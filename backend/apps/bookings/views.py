@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 import re
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
@@ -12,7 +13,6 @@ from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_GET, require_POST
 
 from apps.accounts.models import User
-from apps.notifications.services import notify_user
 from apps.payments.models import PaymentTransaction
 from apps.adminpanel.models import AuditLog
 from apps.vehicles.models import Vehicle
@@ -27,6 +27,37 @@ def _payload(request):
         return json.loads(request.body or "{}")
     except json.JSONDecodeError:
         return {}
+
+
+def _booking_summary(booking):
+    """Return a customer-safe complete receipt for history and success views."""
+    payment = getattr(booking, "payment", None)
+    vehicle = booking.vehicle
+    return {
+        "id": booking.id,
+        "vehicle": vehicle.display_name,
+        "vehicle_type": vehicle.vehicle_type,
+        "vehicle_image": vehicle.image.url if vehicle.image else "",
+        "shop": vehicle.shopkeeper.shop_name,
+        "shop_address": vehicle.shopkeeper.shop_address,
+        "pickup_date": booking.pickup_date.isoformat(),
+        "return_date": booking.return_date.isoformat(),
+        "status": booking.status,
+        "total_amount": str(booking.total_amount),
+        "renter_name": booking.renter_full_name,
+        "renter_age": booking.renter_age,
+        "renter_gender": booking.renter_gender,
+        "renter_phone": booking.renter_phone,
+        "renter_email": booking.renter_email,
+        "identity_verified": hasattr(booking, "identity_verification"),
+        "payment": {
+            "status": payment.status if payment else "CANCELLED",
+            "amount": str(payment.amount) if payment else str(booking.total_amount),
+            "currency": payment.currency if payment else "INR",
+            "provider": payment.provider if payment and payment.provider else "Online payment",
+            "reference": payment.provider_payment_id if payment and payment.provider_payment_id else "Will appear after payment confirmation",
+        },
+    }
 
 
 @login_required
@@ -56,8 +87,6 @@ def create_booking(request):
         booking=booking,
         defaults={"customer": request.user, "amount": booking.total_amount},
     )
-    notify_user(request.user, "Booking request received", f"Your booking request for {booking.vehicle.display_name} is ready for secure payment.")
-    notify_user(booking.vehicle.shopkeeper.user, "New booking request", f"A customer requested {booking.vehicle.display_name} from {pickup_date.isoformat()} to {return_date.isoformat()}. Review it after payment is verified.")
     return JsonResponse({
         "ok": True,
         "message": "Booking request created safely.",
@@ -125,8 +154,6 @@ def create_checkout_booking_view(request):
         booking=booking,
         defaults={"customer": request.user, "amount": booking.total_amount},
     )
-    notify_user(request.user, "Booking request received", f"Your booking request for {booking.vehicle.display_name} is ready for secure payment.")
-    notify_user(booking.vehicle.shopkeeper.user, "New booking request", f"A customer requested {booking.vehicle.display_name} from {pickup_date.isoformat()} to {return_date.isoformat()}. Review it after payment is verified.")
     return JsonResponse({
         "ok": True,
         "message": "Your booking request is saved. Complete the secure payment to send it for shop review.",
@@ -134,30 +161,70 @@ def create_checkout_booking_view(request):
         "payment_id": payment.id,
         "total_amount": str(booking.total_amount),
         "status": booking.status,
+        "payment_test_mode": settings.RAZORPAY_KEY_ID.startswith("rzp_test_"),
+    })
+
+
+@login_required
+@require_GET
+def checkout_defaults(request):
+    """Return the last renter details for convenient, editable repeat checkout."""
+    if request.user.role != User.Role.USER:
+        return JsonResponse({"ok": False, "message": "Customer access only."}, status=403)
+    last_booking = (
+        Booking.objects.filter(customer=request.user, renter_age__isnull=False)
+        .exclude(renter_gender="")
+        .order_by("-created_at")
+        .first()
+    )
+    return JsonResponse({
+        "ok": True,
+        "defaults": {
+            "full_name": last_booking.renter_full_name if last_booking else request.user.get_full_name(),
+            "age": last_booking.renter_age if last_booking else None,
+            "gender": last_booking.renter_gender if last_booking else "",
+            "phone": last_booking.renter_phone if last_booking else request.user.phone_number,
+            "email": request.user.email,
+        },
     })
 
 
 @login_required
 @require_GET
 def booking_history(request):
-    bookings = Booking.objects.filter(customer=request.user).select_related("vehicle", "vehicle__shopkeeper")
+    if request.user.role != User.Role.USER:
+        return JsonResponse({"ok": False, "message": "Customer access only."}, status=403)
+    bookings = Booking.objects.filter(customer=request.user).select_related("vehicle", "vehicle__shopkeeper", "payment")
     return JsonResponse({
         "ok": True,
         "bookings": [
-            {
-                "id": booking.id,
-                "vehicle": booking.vehicle.display_name,
-                "shop": booking.vehicle.shopkeeper.shop_name,
-                "pickup_date": booking.pickup_date.isoformat(),
-                "return_date": booking.return_date.isoformat(),
-                "status": booking.status,
-                "total_amount": str(booking.total_amount),
-                "renter_name": booking.renter_full_name,
-                "identity_verified": hasattr(booking, "identity_verification"),
-            }
+            _booking_summary(booking)
             for booking in bookings
         ],
     })
+
+
+@login_required
+@require_POST
+def cancel_customer_booking(request, booking_id):
+    if request.user.role != User.Role.USER:
+        return JsonResponse({"ok": False, "message": "Customer access only."}, status=403)
+    with transaction.atomic():
+        try:
+            booking = Booking.objects.select_for_update().select_related("vehicle", "vehicle__shopkeeper").get(pk=booking_id, customer=request.user)
+        except Booking.DoesNotExist:
+            return JsonResponse({"ok": False, "message": "Booking not found."}, status=404)
+        payment = PaymentTransaction.objects.select_for_update().filter(booking=booking).first()
+        if booking.status != Booking.Status.PENDING:
+            return JsonResponse({"ok": False, "message": "Only a pending booking can be cancelled here."}, status=409)
+        if payment and payment.status == PaymentTransaction.Status.PAID:
+            return JsonResponse({"ok": False, "message": "This booking has a verified payment. Contact support for the refund process."}, status=409)
+        booking.status = Booking.Status.CANCELLED
+        booking.save(update_fields=["status", "updated_at"])
+        if payment and payment.status == PaymentTransaction.Status.PENDING:
+            payment.status = PaymentTransaction.Status.CANCELLED
+            payment.save(update_fields=["status", "updated_at"])
+    return JsonResponse({"ok": True, "message": "Booking cancelled. No payment was collected."})
 
 
 @login_required
@@ -179,9 +246,17 @@ def shopkeeper_booking_action(request, booking_id):
             )
         except Booking.DoesNotExist:
             return JsonResponse({"ok": False, "message": "Booking not found for this shop."}, status=404)
-        if booking.status in {Booking.Status.CANCELLED, Booking.Status.COMPLETED}:
-            return JsonResponse({"ok": False, "message": "This booking can no longer be changed."}, status=409)
+        if booking.status != Booking.Status.PENDING:
+            return JsonResponse({"ok": False, "message": "This booking has already been processed."}, status=409)
+        payment = PaymentTransaction.objects.select_for_update().filter(booking=booking).first()
+        if action == "confirm" and (not payment or payment.status != PaymentTransaction.Status.PAID):
+            return JsonResponse({"ok": False, "message": "Confirm the booking only after its payment is verified."}, status=409)
+        if action == "cancel" and payment and payment.status == PaymentTransaction.Status.PAID:
+            return JsonResponse({"ok": False, "message": "A paid booking requires a refund through support before it can be cancelled."}, status=409)
         booking.status = Booking.Status.CONFIRMED if action == "confirm" else Booking.Status.CANCELLED
+        if action == "cancel" and payment and payment.status == PaymentTransaction.Status.PENDING:
+            payment.status = PaymentTransaction.Status.CANCELLED
+            payment.save(update_fields=["status", "updated_at"])
         booking.save(update_fields=["status", "updated_at"])
         AuditLog.objects.create(
             actor=request.user,
