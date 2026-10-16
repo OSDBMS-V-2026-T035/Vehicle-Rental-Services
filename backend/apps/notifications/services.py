@@ -1,4 +1,5 @@
 import logging
+from hashlib import sha256
 from html import escape
 
 from apps.accounts.services import send_transactional_email
@@ -8,8 +9,15 @@ logger = logging.getLogger(__name__)
 
 
 def notify_user(user, title, message, *, email=True):
-    """Persist a user notice and mirror it to branded email when configured."""
-    notice = Notification.objects.create(user=user, title=title, message=message)
+    """Persist one notice per user/event and mirror it to email only once."""
+    dedupe_key = sha256(f"{title}\n{message}".encode("utf-8")).hexdigest()
+    notice, created = Notification.objects.get_or_create(
+        user=user,
+        dedupe_key=dedupe_key,
+        defaults={"title": title, "message": message},
+    )
+    if not created:
+        return notice
     if email:
         try:
             body = f'<p style="font-size:16px;line-height:1.6">{message}</p>'
@@ -44,7 +52,14 @@ def notify_signup_success(user):
         f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;margin:0 0 20px;">{rows}</table>'
         '<p style="font-size:13px;line-height:1.6;color:#65758a;margin:0;">For your security, we never include passwords, OTPs, or payment details in account notifications.</p>'
     )
-    notice = Notification.objects.create(user=user, title=title, message=message)
+    dedupe_key = sha256(f"{title}\n{message}".encode("utf-8")).hexdigest()
+    notice, created = Notification.objects.get_or_create(
+        user=user,
+        dedupe_key=dedupe_key,
+        defaults={"title": title, "message": message},
+    )
+    if not created:
+        return notice
     try:
         notice.email_sent = send_transactional_email(
             user.email,
