@@ -35,6 +35,7 @@ class Vehicle(models.Model):
     description = models.TextField(blank=True)
     image = models.FileField(upload_to="vehicle-images/%Y/%m/", blank=True, null=True)
     rc_number = models.CharField(max_length=40, blank=True)
+    chassis_number = models.CharField(max_length=17, blank=True)
     rc_document = models.FileField(upload_to="vehicle-documents/%Y/%m/", blank=True, null=True)
     insurance_document = models.FileField(upload_to="vehicle-documents/%Y/%m/", blank=True, null=True)
     insurance_policy_number = models.CharField(max_length=80, blank=True)

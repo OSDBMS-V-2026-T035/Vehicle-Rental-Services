@@ -1,4 +1,5 @@
 import math
+import re
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.decorators import login_required
@@ -9,6 +10,7 @@ from django.views.decorators.http import require_GET, require_POST
 from django.utils import timezone
 
 from apps.accounts.models import ShopkeeperProfile, User
+from apps.verification.services import validate_aadhaar_last4, validate_gstin, validate_pan
 from apps.bookings.models import Booking
 from apps.payments.models import PaymentTransaction
 from apps.vehicles.models import Vehicle
@@ -112,13 +114,20 @@ def update_shopkeeper_profile(request):
     business_type = request.POST.get("business_type", "").strip()
     pan_number = request.POST.get("pan_number", "").strip().upper()
     gstin = request.POST.get("gstin", "").strip().upper()
-    aadhaar_last4 = "".join(char for char in request.POST.get("aadhaar_last4", "") if char.isdigit())
+    aadhaar_last4 = request.POST.get("aadhaar_last4", "").strip()
     if len(name) < 2 or len(address) < 8 or len(description) < 20:
         return JsonResponse({"ok": False, "message": "Enter a shop name, complete address, and at least 20 characters describing your shop."}, status=400)
-    if len(legal_business_name) < 2 or len(proprietor_name) < 2 or not business_type or len(pan_number) != 10 or len(aadhaar_last4) != 4:
-        return JsonResponse({"ok": False, "message": "Complete legal business name, proprietor, business type, PAN and last 4 Aadhaar digits."}, status=400)
-    if gstin and len(gstin) != 15:
-        return JsonResponse({"ok": False, "message": "GSTIN must contain 15 characters, or leave it blank if not registered."}, status=400)
+    if len(legal_business_name) < 2 or len(proprietor_name) < 2 or not business_type:
+        return JsonResponse({"ok": False, "message": "Complete the legal business name, proprietor and business type."}, status=400)
+    if not validate_pan(pan_number):
+        return JsonResponse({"ok": False, "message": "PAN must use the valid format: 5 letters, 4 digits, then 1 letter."}, status=400)
+    if not validate_aadhaar_last4(aadhaar_last4):
+        return JsonResponse({"ok": False, "message": "Enter exactly the last 4 Aadhaar digits (numbers only)."}, status=400)
+    if gstin and (not validate_gstin(gstin) or gstin[2:12] != pan_number):
+        return JsonResponse({"ok": False, "message": "Enter a valid 15-character GSTIN that matches the PAN above, or leave it blank if not registered."}, status=400)
+    business_registration_number = request.POST.get("business_registration_number", "").strip().upper()
+    if business_registration_number and not re.fullmatch(r"[A-Z0-9/-]{3,80}", business_registration_number):
+        return JsonResponse({"ok": False, "message": "Business registration number may contain 3–80 letters, digits, / or -."}, status=400)
     upload_fields = ("shop_photo", "address_proof", "pan_document", "aadhaar_document", "gst_certificate")
     for field in upload_fields:
         upload = request.FILES.get(field)
@@ -145,7 +154,7 @@ def update_shopkeeper_profile(request):
     profile.pan_number = pan_number
     profile.gstin = gstin
     profile.aadhaar_last4 = aadhaar_last4
-    profile.business_registration_number = request.POST.get("business_registration_number", "").strip()[:80]
+    profile.business_registration_number = business_registration_number[:80]
     for field in upload_fields:
         if request.FILES.get(field):
             setattr(profile, field, request.FILES[field])

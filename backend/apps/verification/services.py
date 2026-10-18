@@ -1,5 +1,7 @@
 """Small, provider-independent identity validation helpers."""
 
+import re
+
 from django.contrib.auth.hashers import make_password
 
 
@@ -29,10 +31,25 @@ _P = (
     (7, 0, 4, 6, 9, 1, 3, 2, 5, 8),
 )
 
+_PAN = re.compile(r"^[A-Z]{3}[ABCFGHLJPT][0-9]{4}[A-Z]$")
+_GSTIN = re.compile(r"^(?:0[1-9]|[12][0-9]|3[0-8]|97)[A-Z]{3}[ABCFGHLJPT][0-9]{4}[A-Z][0-9A-Z]Z[A-Z0-9]$")
+
+
+def validate_pan(value):
+    return bool(_PAN.fullmatch(str(value or "").strip().upper()))
+
+
+def validate_gstin(value):
+    return bool(_GSTIN.fullmatch(str(value or "").strip().upper()))
+
+
+def validate_aadhaar_last4(value):
+    return bool(re.fullmatch(r"[0-9]{4}", str(value or "").strip()))
+
 
 def validate_aadhaar(value):
-    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
-    if len(digits) != 12 or digits[0] in {"0", "1"}:
+    digits = re.sub(r"[\s-]", "", str(value or ""))
+    if not re.fullmatch(r"[0-9]{12}", digits) or digits[0] in {"0", "1"}:
         return False, None
     checksum = 0
     for index, digit in enumerate(reversed(digits)):

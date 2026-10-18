@@ -1,10 +1,12 @@
+from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
-from .views import _amount_in_paise, _capture_and_record, _latest_provider_payment, _provider_payment_matches
+from .views import _amount_in_paise, _capture_and_record, _latest_provider_payment, _payment_window_message, _provider_payment_matches
 
 
 class RazorpayAmountTests(SimpleTestCase):
@@ -53,4 +55,13 @@ class RazorpayCaptureTests(SimpleTestCase):
         ]}
 
         self.assertEqual(_latest_provider_payment(client, payment), "pay_authorised")
+
+
+class PaymentWindowMessageTests(SimpleTestCase):
+    def test_expired_payment_window_message_uses_deadline(self):
+        payment = SimpleNamespace(
+            booking=SimpleNamespace(payment_expires_at=timezone.now() - timedelta(seconds=1))
+        )
+
+        self.assertIn("expired", _payment_window_message(payment))
 

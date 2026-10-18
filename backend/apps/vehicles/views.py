@@ -14,6 +14,7 @@ from django.views.decorators.http import require_GET, require_POST
 from apps.accounts.models import ShopkeeperProfile, User
 from apps.bookings.models import Booking
 from apps.bookings.services import active_reservation_filter, expire_checkout_holds
+from .validators import normalize_chassis_number, normalize_policy_number, normalize_registration
 from django.db import transaction
 from .models import Vehicle
 
@@ -148,8 +149,12 @@ def create_vehicle(request):
         _validate_document(rc_document, "RC document")
         _validate_document(insurance_document, "insurance document")
         uploaded_image = photos["vehicle_photo_front"]
-        rc_number = request.POST.get("rc_number", "").strip().upper()
-        policy_number = request.POST.get("insurance_policy_number", "").strip().upper()
+        registration_number = normalize_registration(request.POST.get("registration_number"))
+        rc_number = normalize_registration(request.POST.get("rc_number"), "RC registration number")
+        if rc_number != registration_number:
+            raise ValidationError("RC registration number must match the vehicle registration number above.")
+        chassis_number = normalize_chassis_number(request.POST.get("chassis_number"))
+        policy_number = normalize_policy_number(request.POST.get("insurance_policy_number"))
         if not rc_number or not policy_number or not request.POST.get("insurance_expiry_date"):
             raise ValidationError("Enter RC number, insurance policy number and insurance expiry date.")
         vehicle = Vehicle(
@@ -157,7 +162,7 @@ def create_vehicle(request):
             vehicle_type=request.POST.get("vehicle_type", "").strip().lower(),
             brand=request.POST.get("brand", "").strip(),
             model_name=request.POST.get("model_name", "").strip(),
-            registration_number=request.POST.get("registration_number", "").strip().upper(),
+            registration_number=registration_number,
             manufacturing_year=int(request.POST.get("manufacturing_year", "0")),
             body_style=request.POST.get("body_style", "standard").strip().lower(),
             fuel_type=request.POST.get("fuel_type", "petrol").strip().lower(),
@@ -169,6 +174,7 @@ def create_vehicle(request):
             description=request.POST.get("description", "").strip(),
             image=uploaded_image,
             rc_number=rc_number,
+            chassis_number=chassis_number,
             rc_document=rc_document,
             insurance_document=insurance_document,
             insurance_policy_number=policy_number,

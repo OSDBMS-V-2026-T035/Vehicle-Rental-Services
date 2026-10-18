@@ -50,3 +50,18 @@ body { font-family: "Segoe UI Variable", "Segoe UI", Inter, system-ui, -apple-sy
 .input-control input, .auth-tab, .otp-button, .submit-button { letter-spacing: .01em; }
 .captcha-card { margin-top: 2px; border-color: rgba(103,168,218,.3); background: rgba(10,28,47,.68); }
 
+/* Keep browser-saved credentials legible without Chrome's bright autofill fill. */
+.input-control input:-webkit-autofill,
+.input-control input:-webkit-autofill:hover,
+.input-control input:-webkit-autofill:focus,
+.input-control input:-webkit-autofill:active,
+.input-control input:autofill {
+  -webkit-text-fill-color: #edf5ff;
+  caret-color: #edf5ff;
+  -webkit-box-shadow: 0 0 0 1000px #0b1c2d inset;
+  box-shadow: 0 0 0 1000px #0b1c2d inset;
+  border-radius: 6px;
+  transition: background-color 99999s ease-out;
+}
+.input-control:has(input:-webkit-autofill) { background: #0b1c2d; }
+

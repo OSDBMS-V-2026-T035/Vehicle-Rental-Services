@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 from django.urls import resolve
 
 from .views import _validate_vehicle_image, _vehicle_payload
+from .validators import normalize_chassis_number, normalize_policy_number, normalize_registration
 
 
 class VehicleImageValidationTests(SimpleTestCase):
@@ -75,4 +76,26 @@ class VehiclePayloadAvailabilityTests(SimpleTestCase):
     def test_vehicle_detail_route_does_not_shadow_live_search(self):
         self.assertEqual(resolve("/api/vehicles/search/").url_name, "vehicles-search")
         self.assertEqual(resolve("/api/vehicles/17/").url_name, "vehicle-detail")
+
+
+class IndianVehicleIdentifierValidationTests(SimpleTestCase):
+    def test_normalizes_standard_indian_registration(self):
+        self.assertEqual(normalize_registration(" uk07 ab 1234 "), "UK07AB1234")
+
+    def test_accepts_bharat_series_registration(self):
+        self.assertEqual(normalize_registration("24bh1234aa"), "24BH1234AA")
+
+    def test_rejects_malformed_registration_instead_of_truncating_it(self):
+        with self.assertRaises(ValidationError):
+            normalize_registration("6544444444444444555555555555555555")
+
+    def test_requires_a_17_character_vin_without_forbidden_letters(self):
+        self.assertEqual(normalize_chassis_number("ma3ejkd1s00a12345"), "MA3EJKD1S00A12345")
+        with self.assertRaises(ValidationError):
+            normalize_chassis_number("MA3EJKD1S00A1234O")
+
+    def test_normalizes_policy_number_and_requires_a_digit(self):
+        self.assertEqual(normalize_policy_number(" ab/123-xy "), "AB/123-XY")
+        with self.assertRaises(ValidationError):
+            normalize_policy_number("POLICY")
 
