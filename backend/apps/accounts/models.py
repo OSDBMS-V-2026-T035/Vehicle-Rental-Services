@@ -92,6 +92,22 @@ class ShopkeeperProfile(models.Model):
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     google_place_id = models.CharField(max_length=255, blank=True)
+    # Compliance information is collected after basic sign-up, not in the
+    # public registration form.  Files remain private and are only exposed to
+    # authenticated review workflows.
+    legal_business_name = models.CharField(max_length=160, blank=True)
+    proprietor_name = models.CharField(max_length=150, blank=True)
+    business_type = models.CharField(max_length=40, blank=True)
+    gstin = models.CharField(max_length=15, blank=True)
+    pan_number = models.CharField(max_length=10, blank=True)
+    aadhaar_last4 = models.CharField(max_length=4, blank=True)
+    business_registration_number = models.CharField(max_length=80, blank=True)
+    shop_photo = models.FileField(upload_to="shop-documents/%Y/%m/", blank=True, null=True)
+    address_proof = models.FileField(upload_to="shop-documents/%Y/%m/", blank=True, null=True)
+    pan_document = models.FileField(upload_to="shop-documents/%Y/%m/", blank=True, null=True)
+    aadhaar_document = models.FileField(upload_to="shop-documents/%Y/%m/", blank=True, null=True)
+    gst_certificate = models.FileField(upload_to="shop-documents/%Y/%m/", blank=True, null=True)
+    profile_completed_at = models.DateTimeField(null=True, blank=True)
     verification_status = models.CharField(
         max_length=20,
         choices=VerificationStatus.choices,
@@ -102,6 +118,15 @@ class ShopkeeperProfile(models.Model):
 
     def __str__(self):
         return self.shop_name
+
+    @property
+    def is_compliance_complete(self):
+        required = [self.legal_business_name, self.proprietor_name, self.business_type,
+                    self.pan_number, self.aadhaar_last4, self.shop_photo,
+                    self.address_proof, self.pan_document, self.aadhaar_document]
+        if self.gstin:
+            required.append(self.gst_certificate)
+        return all(required)
 
 
 class OTPChallenge(models.Model):
