@@ -17,7 +17,7 @@ from apps.payments.models import PaymentTransaction
 from apps.adminpanel.models import AuditLog
 from apps.vehicles.models import Vehicle
 from .models import Booking
-from .services import create_checkout_booking, create_locked_booking
+from .services import create_checkout_booking, create_locked_booking, expire_checkout_holds
 from apps.accounts.models import phone_validator
 from apps.verification.services import validate_aadhaar
 
@@ -50,6 +50,8 @@ def _booking_summary(booking):
         "renter_phone": booking.renter_phone,
         "renter_email": booking.renter_email,
         "identity_verified": hasattr(booking, "identity_verification"),
+        "payment_expires_at": booking.payment_expires_at.isoformat() if booking.payment_expires_at else None,
+        "payment_hold_expired": bool(booking.status == Booking.Status.CANCELLED and booking.payment_expires_at and booking.payment_expires_at <= timezone.now()),
         "payment": {
             "status": payment.status if payment else "CANCELLED",
             "amount": str(payment.amount) if payment else str(booking.total_amount),
@@ -93,6 +95,8 @@ def create_booking(request):
         "booking_id": booking.id,
         "payment_id": payment.id,
         "total_amount": str(booking.total_amount),
+        "payment_expires_at": booking.payment_expires_at.isoformat() if booking.payment_expires_at else None,
+        "payment_hold_minutes": 10,
     })
 
 
@@ -161,6 +165,8 @@ def create_checkout_booking_view(request):
         "payment_id": payment.id,
         "total_amount": str(booking.total_amount),
         "status": booking.status,
+        "payment_expires_at": booking.payment_expires_at.isoformat() if booking.payment_expires_at else None,
+        "payment_hold_minutes": 10,
         "payment_test_mode": settings.RAZORPAY_KEY_ID.startswith("rzp_test_"),
     })
 
@@ -194,6 +200,7 @@ def checkout_defaults(request):
 def booking_history(request):
     if request.user.role != User.Role.USER:
         return JsonResponse({"ok": False, "message": "Customer access only."}, status=403)
+    expire_checkout_holds()
     bookings = Booking.objects.filter(customer=request.user).select_related("vehicle", "vehicle__shopkeeper", "payment")
     return JsonResponse({
         "ok": True,
