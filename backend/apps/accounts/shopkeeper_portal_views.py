@@ -10,7 +10,8 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from apps.bookings.models import Booking
+from apps.bookings.handover import record_handover_inspection
+from apps.bookings.models import Booking, BookingInspection
 from apps.payments.models import PaymentTransaction
 from apps.vehicles.models import Vehicle
 from apps.notifications.services import notify_user
@@ -80,45 +81,48 @@ def shopkeeper_reservation_action(request, profile, booking_id):
     action = str(payload.get("action") or "").upper()
     if action not in {"TAKEOVER", "RECEIVED_BACK", "CANCEL"}:
         return JsonResponse({"ok": False, "message": "Choose vehicle takeover, received back, or cancellation."}, status=400)
+    if action in {"TAKEOVER", "RECEIVED_BACK"}:
+        stage = BookingInspection.Stage.PICKUP if action == "TAKEOVER" else BookingInspection.Stage.RETURN
+        try:
+            record_handover_inspection(
+                profile=profile,
+                booking_id=booking_id,
+                stage=stage,
+                code=payload.get("code"),
+                payload=payload,
+            )
+        except LookupError as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=404)
+        except ValueError as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=409)
+        message = "Pickup inspection recorded and vehicle handed over." if stage == BookingInspection.Stage.PICKUP else "Return inspection recorded and ride completed."
+        return JsonResponse({"ok": True, "message": message})
+
     try:
         with transaction.atomic():
             booking = Booking.objects.select_for_update().select_related("customer", "vehicle").get(pk=booking_id, vehicle__shopkeeper=profile)
-            if action == "TAKEOVER" and booking.status != Booking.Status.CONFIRMED:
-                return JsonResponse({"ok": False, "message": "Only a confirmed booking can be handed over."}, status=409)
-            if action == "RECEIVED_BACK" and booking.status != Booking.Status.HANDED_OVER:
-                return JsonResponse({"ok": False, "message": "Mark vehicle takeover before receiving it back."}, status=409)
             if action == "CANCEL" and booking.status not in {Booking.Status.CONFIRMED, Booking.Status.HANDED_OVER}:
                 return JsonResponse({"ok": False, "message": "This booking cannot be cancelled at its current stage."}, status=409)
             payment = PaymentTransaction.objects.select_for_update().filter(booking=booking).first()
-            if action == "TAKEOVER":
-                booking.status = Booking.Status.HANDED_OVER
-                booking.handover_at = timezone.now()
-            elif action == "RECEIVED_BACK":
-                booking.status = Booking.Status.COMPLETED
-                booking.received_back_at = timezone.now()
-            else:
-                reason = " ".join(str(payload.get("reason") or "").split())
-                if len(reason) < 5:
-                    return JsonResponse({"ok": False, "message": "Give the customer a clear cancellation reason."}, status=400)
-                booking.status = Booking.Status.CANCELLED
-                booking.shopkeeper_cancellation_reason = reason[:1000]
-                if payment and payment.status == PaymentTransaction.Status.PAID:
-                    # Razorpay refunds are created by payment id.  The gateway
-                    # call is deliberately best-effort; a failed initiation is
-                    # retained as PAID so finance can retry without ambiguity.
-                    from django.conf import settings
-                    try:
-                        import razorpay
-                        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-                        client.payment.refund(payment.provider_payment_id, {"amount": int(payment.amount * 100), "notes": {"booking_id": str(booking.id), "reason": reason[:100]}})
-                    except Exception:
-                        return JsonResponse({"ok": False, "message": "Refund could not be initiated safely. Please try again or contact RideHub support."}, status=502)
-                    payment.status = PaymentTransaction.Status.REFUNDED
-                    payment.save(update_fields=["status", "updated_at"])
+            reason = " ".join(str(payload.get("reason") or "").split())
+            if len(reason) < 5:
+                return JsonResponse({"ok": False, "message": "Give the customer a clear cancellation reason."}, status=400)
+            booking.status = Booking.Status.CANCELLED
+            booking.shopkeeper_cancellation_reason = reason[:1000]
+            if payment and payment.status == PaymentTransaction.Status.PAID:
+                # Gateway implementation is selected through the payment adapter.
+                from apps.payments.gateways import get_payment_gateway
+                try:
+                    gateway = get_payment_gateway(payment.provider or "RAZORPAY")
+                    gateway.payment.refund(payment.provider_payment_id, {"amount": int(payment.amount * 100), "notes": {"booking_id": str(booking.id), "reason": reason[:100]}})
+                except Exception:
+                    return JsonResponse({"ok": False, "message": "Refund could not be initiated safely. Please try again or contact RideHub support."}, status=502)
+                payment.status = PaymentTransaction.Status.REFUNDED
+                payment.save(update_fields=["status", "updated_at"])
             booking.save(update_fields=["status", "handover_at", "received_back_at", "shopkeeper_cancellation_reason", "updated_at"])
     except Booking.DoesNotExist:
         return JsonResponse({"ok": False, "message": "Reservation not found."}, status=404)
-    labels = {"TAKEOVER": "Vehicle handover recorded.", "RECEIVED_BACK": "Vehicle received back and ride completed.", "CANCEL": "Booking cancelled and refund initiated automatically."}
+    labels = {"CANCEL": "Booking cancelled and refund initiated automatically."}
     if action == "CANCEL":
         notify_user(booking.customer, "Ride cancelled — refund initiated", f"Your {booking.vehicle.display_name} booking was cancelled by the shop. Reason: {booking.shopkeeper_cancellation_reason}. Your refund has been initiated.")
     return JsonResponse({"ok": True, "message": labels[action]})
