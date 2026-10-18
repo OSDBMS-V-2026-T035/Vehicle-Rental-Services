@@ -126,6 +126,35 @@ def _date_error(request):
     return None
 
 
+def _search_filters(params):
+    """Parse optional marketplace filters without silently accepting bad input."""
+    result = {}
+    raw_rate = str(params.get("max_daily_rate", "")).strip()
+    if raw_rate:
+        try:
+            rate = Decimal(raw_rate)
+        except (InvalidOperation, ValueError):
+            return None, "Enter a valid maximum daily budget."
+        if not rate.is_finite() or rate < 0 or rate > Decimal("100000000"):
+            return None, "Maximum daily budget must be between ₹0 and ₹100,000,000."
+        result["max_daily_rate"] = rate
+    raw_seats = str(params.get("min_seats", "")).strip()
+    if raw_seats:
+        try:
+            seats = int(raw_seats)
+        except ValueError:
+            return None, "Minimum seats must be a whole number."
+        if not 1 <= seats <= 100:
+            return None, "Minimum seats must be between 1 and 100."
+        result["min_seats"] = seats
+    fuel = str(params.get("fuel_type", "all")).strip().lower()
+    if fuel not in {"all", "petrol", "diesel", "electric", "cng", "hybrid", "other"}:
+        return None, "Choose a valid fuel type."
+    if fuel != "all":
+        result["fuel_type"] = fuel
+    return result, None
+
+
 @login_required
 @require_POST
 def create_vehicle(request):
@@ -311,6 +340,9 @@ def search_vehicles(request):
         return JsonResponse({"ok": False, "message": date_error}, status=400)
     expire_checkout_holds()
     vehicle_type = request.GET.get("vehicle_type", "all").lower()
+    filters, filter_error = _search_filters(request.GET)
+    if filter_error:
+        return JsonResponse({"ok": False, "message": filter_error}, status=400)
     query = request.GET.get("q", "").strip().lower()
     shop_id = request.GET.get("shop_id", "").strip()
     try:
@@ -329,7 +361,15 @@ def search_vehicles(request):
     pickup = parse_date(request.GET.get("pickup_date", "")) if request.GET.get("pickup_date") else None
     return_date = parse_date(request.GET.get("return_date", "")) if request.GET.get("return_date") else None
     if vehicle_type != "all":
+        if vehicle_type not in Vehicle.VehicleType.values:
+            return JsonResponse({"ok": False, "message": "Choose a valid vehicle type."}, status=400)
         vehicles = vehicles.filter(vehicle_type=vehicle_type)
+    if filters.get("max_daily_rate") is not None:
+        vehicles = vehicles.filter(daily_rate__lte=filters["max_daily_rate"])
+    if filters.get("min_seats") is not None:
+        vehicles = vehicles.filter(seating_capacity__gte=filters["min_seats"])
+    if filters.get("fuel_type"):
+        vehicles = vehicles.filter(fuel_type__iexact=filters["fuel_type"])
     if shop_id:
         try:
             vehicles = vehicles.filter(shopkeeper_id=int(shop_id))

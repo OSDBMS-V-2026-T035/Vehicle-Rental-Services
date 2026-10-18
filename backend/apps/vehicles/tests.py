@@ -5,7 +5,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
 from django.urls import resolve
 
-from .views import _validate_vehicle_image, _vehicle_payload
+from .views import _search_filters, _validate_vehicle_image, _vehicle_payload
 from .validators import normalize_chassis_number, normalize_policy_number, normalize_registration
 
 
@@ -98,4 +98,30 @@ class IndianVehicleIdentifierValidationTests(SimpleTestCase):
         self.assertEqual(normalize_policy_number(" ab/123-xy "), "AB/123-XY")
         with self.assertRaises(ValidationError):
             normalize_policy_number("POLICY")
+
+
+class MarketplaceSearchFilterTests(SimpleTestCase):
+    def test_parses_budget_seats_and_fuel(self):
+        filters, error = _search_filters({"max_daily_rate": "1250.50", "min_seats": "4", "fuel_type": "diesel"})
+        self.assertIsNone(error)
+        self.assertEqual(str(filters["max_daily_rate"]), "1250.50")
+        self.assertEqual(filters["min_seats"], 4)
+        self.assertEqual(filters["fuel_type"], "diesel")
+
+    def test_empty_filters_do_not_constrain_search(self):
+        self.assertEqual(_search_filters({}), ({}, None))
+
+    def test_rejects_malformed_or_non_finite_budget(self):
+        for value in ("abc", "NaN", "Infinity", "-1"):
+            with self.subTest(value=value):
+                filters, error = _search_filters({"max_daily_rate": value})
+                self.assertIsNone(filters)
+                self.assertTrue(error)
+
+    def test_rejects_invalid_seat_count_and_fuel(self):
+        for params in ({"min_seats": "4.5"}, {"min_seats": "101"}, {"fuel_type": "rocket"}):
+            with self.subTest(params=params):
+                filters, error = _search_filters(params)
+                self.assertIsNone(filters)
+                self.assertTrue(error)
 
