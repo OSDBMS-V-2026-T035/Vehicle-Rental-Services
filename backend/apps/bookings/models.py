@@ -11,6 +11,7 @@ class Booking(models.Model):
         CONFIRMED = "CONFIRMED", "Confirmed"
         CANCELLED = "CANCELLED", "Cancelled"
         COMPLETED = "COMPLETED", "Completed"
+        HANDED_OVER = "HANDED_OVER", "Vehicle handed over"
 
     customer = models.ForeignKey(User, on_delete=models.PROTECT, related_name="bookings")
     vehicle = models.ForeignKey(Vehicle, on_delete=models.PROTECT, related_name="bookings")
@@ -23,7 +24,13 @@ class Booking(models.Model):
     renter_phone = models.CharField(max_length=10, blank=True)
     renter_email = models.EmailField(blank=True)
     email_verified_at = models.DateTimeField(null=True, blank=True)
+    # A pending checkout owns one inventory unit only for this short window.
+    # Confirmed bookings are never subject to this deadline.
+    payment_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    handover_at = models.DateTimeField(null=True, blank=True)
+    received_back_at = models.DateTimeField(null=True, blank=True)
+    shopkeeper_cancellation_reason = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
