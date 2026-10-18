@@ -15,6 +15,7 @@ from apps.accounts.models import ShopkeeperProfile, User
 from apps.bookings.models import Booking
 from apps.bookings.services import active_reservation_filter, expire_checkout_holds
 from .validators import normalize_chassis_number, normalize_policy_number, normalize_registration
+from .matching import rank_vehicle_matches
 from django.db import transaction
 from .models import Vehicle
 
@@ -406,7 +407,11 @@ def search_vehicles(request):
             if distance > radius:
                 continue
         matches.append(_vehicle_payload(vehicle, distance, getattr(vehicle, "reserved_units", None)))
-    matches.sort(key=lambda item: item.get("distance_km", 0))
+    sort_by = request.GET.get("sort", "recommended")
+    try:
+        matches = rank_vehicle_matches(matches, sort_by)
+    except ValueError as exc:
+        return JsonResponse({"ok": False, "message": str(exc)}, status=400)
     visible = matches[:100]
     return JsonResponse({
         "ok": True,

@@ -7,6 +7,7 @@ from django.urls import resolve
 
 from .views import _search_filters, _validate_vehicle_image, _vehicle_payload
 from .validators import normalize_chassis_number, normalize_policy_number, normalize_registration
+from .matching import rank_vehicle_matches
 
 
 class VehicleImageValidationTests(SimpleTestCase):
@@ -117,6 +118,28 @@ class MarketplaceSearchFilterTests(SimpleTestCase):
                 filters, error = _search_filters({"max_daily_rate": value})
                 self.assertIsNone(filters)
                 self.assertTrue(error)
+
+
+class VehicleMatchingTests(SimpleTestCase):
+    def setUp(self):
+        self.vehicles = [
+            {"id": 1, "name": "Near but reserved", "available_quantity": 0, "daily_rate": "500", "distance_km": 1},
+            {"id": 2, "name": "Far and cheap", "available_quantity": 2, "daily_rate": "300", "distance_km": 8},
+            {"id": 3, "name": "Nearby", "available_quantity": 1, "daily_rate": "700", "distance_km": 2},
+        ]
+
+    def test_recommended_prioritizes_available_units_then_proximity(self):
+        result = rank_vehicle_matches(self.vehicles)
+        self.assertEqual([row["id"] for row in result], [3, 2, 1])
+
+    def test_nearest_and_price_sorts_are_explicit(self):
+        self.assertEqual([row["id"] for row in rank_vehicle_matches(self.vehicles, "nearest")], [1, 3, 2])
+        self.assertEqual([row["id"] for row in rank_vehicle_matches(self.vehicles, "price_low")], [2, 1, 3])
+        self.assertEqual([row["id"] for row in rank_vehicle_matches(self.vehicles, "price_high")], [3, 1, 2])
+
+    def test_invalid_sort_is_rejected(self):
+        with self.assertRaises(ValueError):
+            rank_vehicle_matches(self.vehicles, "random")
 
     def test_rejects_invalid_seat_count_and_fuel(self):
         for params in ({"min_seats": "4.5"}, {"min_seats": "101"}, {"fuel_type": "rocket"}):
