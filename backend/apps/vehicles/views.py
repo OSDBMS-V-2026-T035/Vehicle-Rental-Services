@@ -346,11 +346,7 @@ def search_vehicles(request):
                 filter=Q(
                     bookings__pickup_date__lte=return_date,
                     bookings__return_date__gte=pickup,
-                ) & (
-                    Q(bookings__status=Booking.Status.CONFIRMED)
-                    | Q(bookings__status=Booking.Status.PENDING, bookings__payment_expires_at__isnull=True)
-                    | Q(bookings__status=Booking.Status.PENDING, bookings__payment_expires_at__gt=timezone.now())
-                ),
+                ) & active_reservation_filter(),
             )
         )
     matches = []
