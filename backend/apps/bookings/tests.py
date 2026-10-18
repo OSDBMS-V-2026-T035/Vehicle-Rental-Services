@@ -6,6 +6,8 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from .documents import _document_bytes
+from .models import Booking
+from .services import active_reservation_statuses
 
 
 class BookingDocumentTests(SimpleTestCase):
@@ -40,4 +42,16 @@ class BookingDocumentTests(SimpleTestCase):
             self.assertTrue(content.startswith(b"%PDF"))
             self.assertIn(phrase, content)
             self.assertIn(b"RideHub", content)
+
+
+class ActiveReservationStatusTests(SimpleTestCase):
+    def test_confirmed_and_handed_over_bookings_both_consume_inventory(self):
+        self.assertEqual(
+            active_reservation_statuses(),
+            (Booking.Status.CONFIRMED, Booking.Status.HANDED_OVER),
+        )
+
+    def test_completed_and_cancelled_bookings_do_not_consume_inventory(self):
+        self.assertNotIn(Booking.Status.COMPLETED, active_reservation_statuses())
+        self.assertNotIn(Booking.Status.CANCELLED, active_reservation_statuses())
 

@@ -12,6 +12,11 @@ from apps.verification.models import BookingVerification
 PAYMENT_HOLD_MINUTES = 10
 
 
+def active_reservation_statuses():
+    """Statuses that continue consuming inventory after checkout has settled."""
+    return (Booking.Status.CONFIRMED, Booking.Status.HANDED_OVER)
+
+
 def payment_hold_deadline():
     return timezone.now() + timedelta(minutes=PAYMENT_HOLD_MINUTES)
 
@@ -52,7 +57,7 @@ def active_reservation_filter(now=None):
 
     now = now or timezone.now()
     # Null is retained for legacy pending records created before timed holds.
-    return Q(status=Booking.Status.CONFIRMED) | Q(
+    return Q(status__in=active_reservation_statuses()) | Q(
         status=Booking.Status.PENDING,
         payment_expires_at__isnull=True,
     ) | Q(
