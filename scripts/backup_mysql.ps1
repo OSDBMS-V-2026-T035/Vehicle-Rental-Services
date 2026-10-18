@@ -1,7 +1,7 @@
 param(
     [string]$OutputDirectory = "$PSScriptRoot\..\database\backups"
 )
-
+ 
 $ErrorActionPreference = "Stop"
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $envFile = Join-Path $projectRoot ".env"
