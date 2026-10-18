@@ -15,6 +15,7 @@ from apps.accounts.models import User
 from apps.bookings.models import Booking
 from apps.bookings.services import expire_checkout_holds
 from apps.notifications.services import notify_paid_booking_with_documents
+from .gateways import get_payment_gateway
 from .models import PaymentTransaction
 
 
@@ -34,11 +35,10 @@ def _customer_only(view):
     return wrapped
 
 
-def _razorpay_client():
+def _payment_gateway(provider=None):
     if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
         return None
-    import razorpay
-    return razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+    return get_payment_gateway(provider)
 
 
 def _amount_in_paise(amount):
@@ -63,13 +63,13 @@ def _provider_payment_matches(payment, provider_payment):
             and str(provider_payment.get("currency") or "").upper() == payment.currency.upper())
 
 
-def _capture_and_record(client, payment, gateway_payment_id):
+def _capture_and_record(gateway, payment, gateway_payment_id):
     """Capture an authorised payment before marking a booking as paid."""
-    provider_payment = client.payment.fetch(gateway_payment_id)
+    provider_payment = gateway.fetch_payment(gateway_payment_id)
     if not _provider_payment_matches(payment, provider_payment):
         raise ValueError("Provider payment does not match this reservation.")
     if provider_payment.get("status") == "authorized":
-        provider_payment = client.payment.capture(gateway_payment_id, _amount_in_paise(payment.amount), {"currency": payment.currency})
+        provider_payment = gateway.capture_payment(gateway_payment_id, _amount_in_paise(payment.amount), {"currency": payment.currency})
     if provider_payment.get("status") != "captured":
         raise ValueError("Payment is still awaiting bank confirmation.")
     payment.status = PaymentTransaction.Status.PAID
@@ -77,9 +77,9 @@ def _capture_and_record(client, payment, gateway_payment_id):
     payment.save(update_fields=["status", "provider_payment_id", "updated_at"])
 
 
-def _latest_provider_payment(client, payment):
+def _latest_provider_payment(gateway, payment):
     """Find a captured/authorised provider payment for a preserved order."""
-    result = client.payment.all({"order_id": payment.provider_reference, "count": 100})
+    result = gateway.list_payments(payment.provider_reference, count=100)
     for provider_payment in reversed(result.get("items", [])):
         if provider_payment.get("status") in {"captured", "authorized"} and _provider_payment_matches(payment, provider_payment):
             return str(provider_payment.get("id") or "")
@@ -109,8 +109,8 @@ def _payment_window_message(payment):
 @_customer_only
 @require_POST
 def create_razorpay_order(request, payment_id):
-    client = _razorpay_client()
-    if client is None:
+    gateway = _payment_gateway()
+    if gateway is None:
         return JsonResponse({"ok": False, "message": "Razorpay is not configured yet. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to .env, then restart the service."}, status=503)
     try:
         expire_checkout_holds()
@@ -125,13 +125,13 @@ def create_razorpay_order(request, payment_id):
             amount = _amount_in_paise(payment.amount)
             order = None
             if payment.provider == "RAZORPAY" and payment.provider_reference:
-                existing = client.order.fetch(payment.provider_reference)
+                existing = gateway.fetch_order(payment.provider_reference)
                 if (existing.get("id") == payment.provider_reference and int(existing.get("amount") or 0) == amount
                         and str(existing.get("currency") or "").upper() == payment.currency.upper()
                         and existing.get("status") in {"created", "attempted"}):
                     order = existing
             if order is None:
-                order = client.order.create(data={"amount": amount, "currency": payment.currency, "receipt": f"ridehub-pay-{payment.id}"[:40], "notes": {"payment_id": str(payment.id), "booking_id": str(payment.booking_id)}})
+                order = gateway.create_order({"amount": amount, "currency": payment.currency, "receipt": f"ridehub-pay-{payment.id}"[:40], "notes": {"payment_id": str(payment.id), "booking_id": str(payment.booking_id)}})
                 payment.provider = "RAZORPAY"
                 payment.provider_reference = order["id"]
                 payment.save(update_fields=["provider", "provider_reference", "updated_at"])
@@ -145,8 +145,8 @@ def create_razorpay_order(request, payment_id):
 @_customer_only
 @require_POST
 def verify_razorpay_payment(request):
-    client = _razorpay_client()
-    if client is None:
+    gateway = _payment_gateway("RAZORPAY")
+    if gateway is None:
         return JsonResponse({"ok": False, "message": "Razorpay is not configured yet."}, status=503)
     payload = _payload(request)
     try:
@@ -168,8 +168,8 @@ def verify_razorpay_payment(request):
                 return JsonResponse({"ok": False, "message": "This payment was already completed."}, status=409)
             if payment.status != PaymentTransaction.Status.PENDING or payment.provider != "RAZORPAY" or payment.provider_reference != order_id:
                 return JsonResponse({"ok": False, "message": "This checkout session is no longer valid. Start payment again."}, status=409)
-            client.utility.verify_payment_signature({"razorpay_order_id": order_id, "razorpay_payment_id": gateway_payment_id, "razorpay_signature": signature})
-            _capture_and_record(client, payment, gateway_payment_id)
+            gateway.verify_payment_signature({"razorpay_order_id": order_id, "razorpay_payment_id": gateway_payment_id, "razorpay_signature": signature})
+            _capture_and_record(gateway, payment, gateway_payment_id)
     except PaymentTransaction.DoesNotExist:
         return JsonResponse({"ok": False, "message": "Payment record not found."}, status=404)
     except Exception:
@@ -183,8 +183,8 @@ def verify_razorpay_payment(request):
 @require_POST
 def reconcile_razorpay_payment(request, payment_id):
     """Recover a captured/authorised payment when the checkout callback is lost."""
-    client = _razorpay_client()
-    if client is None:
+    gateway = _payment_gateway("RAZORPAY")
+    if gateway is None:
         return JsonResponse({"ok": False, "message": "Razorpay is not configured yet."}, status=503)
     try:
         expire_checkout_holds()
@@ -196,10 +196,10 @@ def reconcile_razorpay_payment(request, payment_id):
                 return JsonResponse({"ok": True, "status": "EXPIRED", "message": _payment_window_message(payment)})
             if payment.status != PaymentTransaction.Status.PENDING or payment.provider != "RAZORPAY" or not payment.provider_reference:
                 return JsonResponse({"ok": True, "status": "PENDING", "message": "Payment is still available to retry."})
-            gateway_payment_id = _latest_provider_payment(client, payment)
+            gateway_payment_id = _latest_provider_payment(gateway, payment)
             if not gateway_payment_id:
                 return JsonResponse({"ok": True, "status": "PENDING", "message": "No completed payment was found yet. You can safely retry."})
-            _capture_and_record(client, payment, gateway_payment_id)
+            _capture_and_record(gateway, payment, gateway_payment_id)
     except PaymentTransaction.DoesNotExist:
         return JsonResponse({"ok": False, "message": "Payment record not found."}, status=404)
     except Exception:
@@ -217,10 +217,10 @@ def razorpay_webhook(request):
         return JsonResponse({"ok": False}, status=503)
     signature = request.headers.get("X-Razorpay-Signature", "")
     try:
-        client = _razorpay_client()
-        if client is None or not signature:
+        gateway = _payment_gateway("RAZORPAY")
+        if gateway is None or not signature:
             raise ValueError("Missing Razorpay configuration or signature")
-        client.utility.verify_webhook_signature(request.body.decode("utf-8"), signature, settings.RAZORPAY_WEBHOOK_SECRET)
+        gateway.verify_webhook_signature(request.body.decode("utf-8"), signature, settings.RAZORPAY_WEBHOOK_SECRET)
         payload = json.loads(request.body)
     except Exception:
         return JsonResponse({"ok": False}, status=400)
@@ -243,7 +243,7 @@ def razorpay_webhook(request):
         if payment.status != PaymentTransaction.Status.PENDING:
             return JsonResponse({"ok": True})
         try:
-            _capture_and_record(client, payment, gateway_payment_id)
+            _capture_and_record(gateway, payment, gateway_payment_id)
         except Exception:
             return JsonResponse({"ok": True})
     _confirm_paid_booking(payment)

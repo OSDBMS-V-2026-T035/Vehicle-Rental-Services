@@ -114,7 +114,7 @@ def shopkeeper_reservation_action(request, profile, booking_id):
                 from apps.payments.gateways import get_payment_gateway
                 try:
                     gateway = get_payment_gateway(payment.provider or "RAZORPAY")
-                    gateway.payment.refund(payment.provider_payment_id, {"amount": int(payment.amount * 100), "notes": {"booking_id": str(booking.id), "reason": reason[:100]}})
+                    gateway.refund(payment.provider_payment_id, {"amount": int(payment.amount * 100), "notes": {"booking_id": str(booking.id), "reason": reason[:100]}})
                 except Exception:
                     return JsonResponse({"ok": False, "message": "Refund could not be initiated safely. Please try again or contact RideHub support."}, status=502)
                 payment.status = PaymentTransaction.Status.REFUNDED

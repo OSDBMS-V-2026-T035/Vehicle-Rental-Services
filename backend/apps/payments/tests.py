@@ -30,12 +30,12 @@ class RazorpayCaptureTests(SimpleTestCase):
     def test_authorized_provider_payment_is_captured_before_booking_is_paid(self):
         payment = self._payment()
         client = Mock()
-        client.payment.fetch.return_value = {"id": "pay_test_123", "order_id": "order_test_123", "amount": 2000, "currency": "INR", "status": "authorized"}
-        client.payment.capture.return_value = {"id": "pay_test_123", "order_id": "order_test_123", "amount": 2000, "currency": "INR", "status": "captured"}
+        client.fetch_payment.return_value = {"id": "pay_test_123", "order_id": "order_test_123", "amount": 2000, "currency": "INR", "status": "authorized"}
+        client.capture_payment.return_value = {"id": "pay_test_123", "order_id": "order_test_123", "amount": 2000, "currency": "INR", "status": "captured"}
 
         _capture_and_record(client, payment, "pay_test_123")
 
-        client.payment.capture.assert_called_once_with("pay_test_123", 2000, {"currency": "INR"})
+        client.capture_payment.assert_called_once_with("pay_test_123", 2000, {"currency": "INR"})
         self.assertEqual(payment.status, "PAID")
         self.assertEqual(payment.provider_payment_id, "pay_test_123")
 
@@ -48,7 +48,7 @@ class RazorpayCaptureTests(SimpleTestCase):
     def test_reconciliation_uses_only_an_authorised_or_captured_matching_provider_payment(self):
         payment = self._payment()
         client = Mock()
-        client.payment.all.return_value = {"items": [
+        client.list_payments.return_value = {"items": [
             {"id": "pay_wrong", "order_id": "order_other", "amount": 2000, "currency": "INR", "status": "captured"},
             {"id": "pay_failed", "order_id": "order_test_123", "amount": 2000, "currency": "INR", "status": "failed"},
             {"id": "pay_authorised", "order_id": "order_test_123", "amount": 2000, "currency": "INR", "status": "authorized"},
