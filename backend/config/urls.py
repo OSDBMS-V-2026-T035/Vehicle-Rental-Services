@@ -9,7 +9,8 @@ from django.views.generic import TemplateView
 from apps.accounts.views import auth_page, captcha_view, customer_profile_view, login_view, logout_view, password_reset_confirm_view, password_reset_otp_view, portal_view, send_otp_view, signup_view, update_customer_profile_view, verify_signup_otp_view
 from apps.adminpanel.views import booking_action, shopkeeper_action, user_action, vehicle_action
 from apps.adminpanel.portal_views import admin_audit, admin_catalog, admin_earnings, admin_review_queues, admin_summary
-from apps.bookings.views import booking_history, cancel_customer_booking, checkout_defaults, create_booking, create_checkout_booking_view, shopkeeper_booking_action, shopkeeper_vehicle_availability
+from apps.bookings.views import booking_history, cancel_customer_booking, checkout_defaults, create_booking, create_checkout_booking_view, shopkeeper_vehicle_availability
+from apps.bookings.documents import download_booking_document
 from apps.accounts.shopkeeper_portal_views import set_vehicle_availability, shopkeeper_reservation_action, shopkeeper_reservations, shopkeeper_summary, update_vehicle_rate
 from apps.payments.views import create_razorpay_order, razorpay_webhook, reconcile_razorpay_payment, verify_razorpay_payment
 from apps.shops.views import search_shops, shopkeeper_dashboard, update_shopkeeper_profile
@@ -60,7 +61,6 @@ urlpatterns = [
     path("api/shopkeeper/vehicles/", my_vehicles, name="shopkeeper-vehicles"),
     path("api/shopkeeper/vehicles/create/", create_vehicle, name="vehicle-create"),
     path("api/shopkeeper/vehicles/<int:vehicle_id>/remove/", remove_vehicle, name="vehicle-remove"),
-    path("api/shopkeeper/bookings/<int:booking_id>/action/", shopkeeper_booking_action, name="shopkeeper-booking-action"),
     path("api/shops/search/", search_shops, name="shops-search"),
     path("api/vehicles/search/", search_vehicles, name="vehicles-search"),
     path("api/vehicles/<int:vehicle_id>/", vehicle_detail, name="vehicle-detail"),
@@ -68,6 +68,7 @@ urlpatterns = [
     path("api/bookings/checkout/", create_checkout_booking_view, name="booking-checkout"),
     path("api/bookings/checkout/defaults/", checkout_defaults, name="booking-checkout-defaults"),
     path("api/bookings/history/", booking_history, name="booking-history"),
+    path("api/bookings/<int:booking_id>/documents/<str:kind>/", download_booking_document, name="booking-document-download"),
     path("api/bookings/<int:booking_id>/cancel/", cancel_customer_booking, name="booking-cancel"),
     path("api/payments/razorpay/order/<int:payment_id>/", create_razorpay_order, name="razorpay-create-order"),
     path("api/payments/razorpay/verify/", verify_razorpay_payment, name="razorpay-verify-payment"),
