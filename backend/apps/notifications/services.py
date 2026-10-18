@@ -28,6 +28,31 @@ def notify_user(user, title, message, *, email=True):
     return notice
 
 
+def notify_paid_booking_with_documents(payment):
+    """Notify only the customer and include the authoritative PDF documents."""
+    from apps.bookings.documents import _document_bytes, _ride_reference
+
+    booking = payment.booking
+    reference = _ride_reference(booking)
+    title = "Payment successful - your RideHub documents"
+    message = f"Payment for booking {reference} was successful. Your payment receipt and ride confirmation are attached to this email."
+    dedupe_key = sha256(f"{title}\n{message}".encode("utf-8")).hexdigest()
+    notice, created = Notification.objects.get_or_create(user=payment.customer, dedupe_key=dedupe_key, defaults={"title": title, "message": message})
+    if not created:
+        return notice
+    attachments = [
+        (f"ridehub-payment-receipt-{reference.lower()}.pdf", _document_bytes(booking, "receipt"), "application/pdf"),
+        (f"ridehub-ride-confirmation-{reference.lower()}.pdf", _document_bytes(booking, "confirmation"), "application/pdf"),
+    ]
+    try:
+        body = f'<p style="font-size:16px;line-height:1.6">Hello, your payment is confirmed for booking <strong>{reference}</strong>. The payment receipt and ride confirmation are attached.</p>'
+        notice.email_sent = send_transactional_email(payment.customer.email, title, title, message, body, attachments=attachments) != "console"
+        notice.save(update_fields=["email_sent"])
+    except Exception:
+        logger.exception("Could not email paid-booking documents to %s", payment.customer.email)
+    return notice
+
+
 def notify_signup_success(user):
     """Send a branded, non-sensitive account receipt after signup."""
     role = user.get_role_display()

@@ -12,7 +12,8 @@ from django.views.decorators.http import require_POST
 
 from apps.accounts.models import User
 from apps.bookings.models import Booking
-from apps.notifications.services import notify_user
+from apps.bookings.services import expire_checkout_holds
+from apps.notifications.services import notify_paid_booking_with_documents
 from .models import PaymentTransaction
 
 
@@ -85,15 +86,23 @@ def _latest_provider_payment(client, payment):
 
 
 def _notify_customer_of_paid_booking(payment):
-    """Notify only the renter after a signature-verified successful payment."""
+    """Send the customer their receipt and ticket; no shopkeeper notification."""
+    notify_paid_booking_with_documents(payment)
+
+
+def _confirm_paid_booking(payment):
+    """A captured payment is the booking confirmation; shops do not approve it."""
     booking = payment.booking
-    message = (
-        f"Payment successful for {booking.vehicle.display_name}. "
-        f"Booking #{booking.id}; pickup {booking.pickup_date:%d %b %Y}; "
-        f"return {booking.return_date:%d %b %Y}; paid ₹{payment.amount} via Razorpay. "
-        "Your shop will now review the reservation in RideHub."
-    )
-    notify_user(payment.customer, "Payment successful — booking received", message)
+    if booking.status == Booking.Status.PENDING:
+        booking.status = Booking.Status.CONFIRMED
+        booking.save(update_fields=["status", "updated_at"])
+
+
+def _payment_window_message(payment):
+    deadline = payment.booking.payment_expires_at
+    if deadline and deadline <= timezone.now():
+        return "Your 10-minute payment window has expired. The vehicle is free again; please search and try booking again."
+    return "This booking is no longer awaiting payment."
 
 
 @_customer_only
@@ -103,10 +112,11 @@ def create_razorpay_order(request, payment_id):
     if client is None:
         return JsonResponse({"ok": False, "message": "Razorpay is not configured yet. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to .env, then restart the service."}, status=503)
     try:
+        expire_checkout_holds()
         with transaction.atomic():
             payment = PaymentTransaction.objects.select_for_update().select_related("booking", "booking__vehicle", "customer").get(pk=payment_id, customer=request.user)
             if payment.booking.status != Booking.Status.PENDING:
-                return JsonResponse({"ok": False, "message": "This booking is no longer awaiting payment."}, status=409)
+                return JsonResponse({"ok": False, "message": _payment_window_message(payment)}, status=409)
             if payment.status == PaymentTransaction.Status.PAID:
                 return JsonResponse({"ok": False, "message": "This payment has already been received."}, status=409)
             if payment.status != PaymentTransaction.Status.PENDING:
@@ -146,10 +156,11 @@ def verify_razorpay_payment(request):
     if not order_id or not gateway_payment_id or not signature:
         return JsonResponse({"ok": False, "message": "Incomplete payment confirmation."}, status=400)
     try:
+        expire_checkout_holds()
         with transaction.atomic():
             payment = PaymentTransaction.objects.select_for_update().select_related("booking", "booking__vehicle", "customer").get(pk=payment_id, customer=request.user)
             if payment.booking.status != Booking.Status.PENDING:
-                return JsonResponse({"ok": False, "message": "This booking is no longer awaiting payment."}, status=409)
+                return JsonResponse({"ok": False, "message": _payment_window_message(payment)}, status=409)
             if payment.status == PaymentTransaction.Status.PAID:
                 if payment.provider_payment_id == gateway_payment_id:
                     return JsonResponse({"ok": True, "message": "Payment was already verified."})
@@ -162,8 +173,9 @@ def verify_razorpay_payment(request):
         return JsonResponse({"ok": False, "message": "Payment record not found."}, status=404)
     except Exception:
         return JsonResponse({"ok": False, "message": "We could not verify this payment. No booking status was changed."}, status=400)
+    _confirm_paid_booking(payment)
     _notify_customer_of_paid_booking(payment)
-    return JsonResponse({"ok": True, "message": "Payment verified successfully. Your booking is awaiting shop confirmation."})
+    return JsonResponse({"ok": True, "message": "Payment verified successfully. Your ride is confirmed."})
 
 
 @_customer_only
@@ -174,11 +186,14 @@ def reconcile_razorpay_payment(request, payment_id):
     if client is None:
         return JsonResponse({"ok": False, "message": "Razorpay is not configured yet."}, status=503)
     try:
+        expire_checkout_holds()
         with transaction.atomic():
             payment = PaymentTransaction.objects.select_for_update().select_related("booking", "booking__vehicle", "customer").get(pk=payment_id, customer=request.user)
             if payment.status == PaymentTransaction.Status.PAID:
                 return JsonResponse({"ok": True, "status": "PAID", "message": "Payment was already confirmed."})
-            if payment.booking.status != Booking.Status.PENDING or payment.status != PaymentTransaction.Status.PENDING or payment.provider != "RAZORPAY" or not payment.provider_reference:
+            if payment.booking.status != Booking.Status.PENDING:
+                return JsonResponse({"ok": True, "status": "EXPIRED", "message": _payment_window_message(payment)})
+            if payment.status != PaymentTransaction.Status.PENDING or payment.provider != "RAZORPAY" or not payment.provider_reference:
                 return JsonResponse({"ok": True, "status": "PENDING", "message": "Payment is still available to retry."})
             gateway_payment_id = _latest_provider_payment(client, payment)
             if not gateway_payment_id:
@@ -188,6 +203,7 @@ def reconcile_razorpay_payment(request, payment_id):
         return JsonResponse({"ok": False, "message": "Payment record not found."}, status=404)
     except Exception:
         return JsonResponse({"ok": True, "status": "PENDING", "message": "Payment confirmation is still in progress. Do not make a duplicate payment."})
+    _confirm_paid_booking(payment)
     _notify_customer_of_paid_booking(payment)
     return JsonResponse({"ok": True, "status": "PAID", "message": "Payment confirmed successfully."})
 
@@ -216,6 +232,7 @@ def razorpay_webhook(request):
     amount = entity.get("amount")
     if not order_id or not gateway_payment_id:
         return JsonResponse({"ok": True})
+    expire_checkout_holds()
     with transaction.atomic():
         payment = PaymentTransaction.objects.select_for_update().select_related("booking", "booking__vehicle", "customer").filter(
             provider="RAZORPAY", provider_reference=order_id
@@ -228,6 +245,7 @@ def razorpay_webhook(request):
             _capture_and_record(client, payment, gateway_payment_id)
         except Exception:
             return JsonResponse({"ok": True})
+    _confirm_paid_booking(payment)
     _notify_customer_of_paid_booking(payment)
     return JsonResponse({"ok": True})
 
