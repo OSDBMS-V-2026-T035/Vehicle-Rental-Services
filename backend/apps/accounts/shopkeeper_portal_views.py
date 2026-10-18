@@ -13,6 +13,7 @@ from django.views.decorators.http import require_GET, require_POST
 from apps.bookings.models import Booking
 from apps.payments.models import PaymentTransaction
 from apps.vehicles.models import Vehicle
+from apps.notifications.services import notify_user
 from .models import ShopkeeperProfile, User
 
 
@@ -44,12 +45,12 @@ def shopkeeper_summary(request, profile):
         payment__status=PaymentTransaction.Status.PAID,
     )
     paid = PaymentTransaction.objects.filter(booking__in=paid_bookings)
-    return JsonResponse({"ok": True, "profile": {"shop_name": profile.shop_name, "shop_address": profile.shop_address, "shop_description": profile.shop_description, "latitude": str(profile.latitude or ""), "longitude": str(profile.longitude or ""), "verification_status": profile.verification_status, "email": request.user.email, "phone": request.user.phone_number}, "summary": {
+    return JsonResponse({"ok": True, "profile": {"shop_name": profile.shop_name, "shop_address": profile.shop_address, "shop_description": profile.shop_description, "latitude": str(profile.latitude or ""), "longitude": str(profile.longitude or ""), "verification_status": profile.verification_status, "compliance_complete": profile.is_compliance_complete, "legal_business_name": profile.legal_business_name, "proprietor_name": profile.proprietor_name, "business_type": profile.business_type, "gstin": profile.gstin, "pan_number": profile.pan_number, "aadhaar_last4": profile.aadhaar_last4, "business_registration_number": profile.business_registration_number, "email": request.user.email, "phone": request.user.phone_number}, "summary": {
         "total_vehicles": vehicles.count(),
         "approved_vehicles": vehicles.filter(listing_status=Vehicle.ListingStatus.APPROVED).count(),
         "available_vehicles": vehicles.filter(listing_status=Vehicle.ListingStatus.APPROVED, is_available=True).count(),
-        "pending_reservations": paid_bookings.filter(status=Booking.Status.PENDING).count(),
-        "paid_awaiting_action": paid_bookings.filter(status=Booking.Status.PENDING).count(),
+        "pending_reservations": paid_bookings.filter(status=Booking.Status.CONFIRMED).count(),
+        "paid_awaiting_action": paid_bookings.filter(status=Booking.Status.CONFIRMED).count(),
         "paid_bookings": paid.count(),
         "gross_earnings": paid.aggregate(total=Sum("amount"))["total"] or 0,
     }})
@@ -75,31 +76,52 @@ def shopkeeper_reservations(request, profile):
 def shopkeeper_reservation_action(request, profile, booking_id):
     if profile.verification_status != ShopkeeperProfile.VerificationStatus.VERIFIED:
         return JsonResponse({"ok": False, "message": "One-time admin verification is required before managing reservations."}, status=403)
-    action = str(_payload(request).get("action") or "").upper()
-    if action not in {"CONFIRM", "DECLINE"}:
-        return JsonResponse({"ok": False, "message": "Choose a valid reservation action."}, status=400)
+    payload = _payload(request)
+    action = str(payload.get("action") or "").upper()
+    if action not in {"TAKEOVER", "RECEIVED_BACK", "CANCEL"}:
+        return JsonResponse({"ok": False, "message": "Choose vehicle takeover, received back, or cancellation."}, status=400)
     try:
         with transaction.atomic():
             booking = Booking.objects.select_for_update().select_related("customer", "vehicle").get(pk=booking_id, vehicle__shopkeeper=profile)
-            if booking.status != Booking.Status.PENDING:
-                return JsonResponse({"ok": False, "message": "This reservation has already been processed."}, status=409)
+            if action == "TAKEOVER" and booking.status != Booking.Status.CONFIRMED:
+                return JsonResponse({"ok": False, "message": "Only a confirmed booking can be handed over."}, status=409)
+            if action == "RECEIVED_BACK" and booking.status != Booking.Status.HANDED_OVER:
+                return JsonResponse({"ok": False, "message": "Mark vehicle takeover before receiving it back."}, status=409)
+            if action == "CANCEL" and booking.status not in {Booking.Status.CONFIRMED, Booking.Status.HANDED_OVER}:
+                return JsonResponse({"ok": False, "message": "This booking cannot be cancelled at its current stage."}, status=409)
             payment = PaymentTransaction.objects.select_for_update().filter(booking=booking).first()
-            payment_status = payment.status if payment else PaymentTransaction.Status.PENDING
-            if action == "CONFIRM":
-                if payment_status != PaymentTransaction.Status.PAID:
-                    return JsonResponse({"ok": False, "message": "Confirm the reservation only after its payment is verified."}, status=409)
-                booking.status = Booking.Status.CONFIRMED
+            if action == "TAKEOVER":
+                booking.status = Booking.Status.HANDED_OVER
+                booking.handover_at = timezone.now()
+            elif action == "RECEIVED_BACK":
+                booking.status = Booking.Status.COMPLETED
+                booking.received_back_at = timezone.now()
             else:
-                if payment_status == PaymentTransaction.Status.PAID:
-                    return JsonResponse({"ok": False, "message": "This reservation has a verified payment. Contact support so a refund can be handled safely."}, status=409)
+                reason = " ".join(str(payload.get("reason") or "").split())
+                if len(reason) < 5:
+                    return JsonResponse({"ok": False, "message": "Give the customer a clear cancellation reason."}, status=400)
                 booking.status = Booking.Status.CANCELLED
-                if payment and payment.status == PaymentTransaction.Status.PENDING:
-                    payment.status = PaymentTransaction.Status.CANCELLED
+                booking.shopkeeper_cancellation_reason = reason[:1000]
+                if payment and payment.status == PaymentTransaction.Status.PAID:
+                    # Razorpay refunds are created by payment id.  The gateway
+                    # call is deliberately best-effort; a failed initiation is
+                    # retained as PAID so finance can retry without ambiguity.
+                    from django.conf import settings
+                    try:
+                        import razorpay
+                        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+                        client.payment.refund(payment.provider_payment_id, {"amount": int(payment.amount * 100), "notes": {"booking_id": str(booking.id), "reason": reason[:100]}})
+                    except Exception:
+                        return JsonResponse({"ok": False, "message": "Refund could not be initiated safely. Please try again or contact RideHub support."}, status=502)
+                    payment.status = PaymentTransaction.Status.REFUNDED
                     payment.save(update_fields=["status", "updated_at"])
-            booking.save(update_fields=["status", "updated_at"])
+            booking.save(update_fields=["status", "handover_at", "received_back_at", "shopkeeper_cancellation_reason", "updated_at"])
     except Booking.DoesNotExist:
         return JsonResponse({"ok": False, "message": "Reservation not found."}, status=404)
-    return JsonResponse({"ok": True, "message": "Reservation confirmed." if action == "CONFIRM" else "Reservation declined safely."})
+    labels = {"TAKEOVER": "Vehicle handover recorded.", "RECEIVED_BACK": "Vehicle received back and ride completed.", "CANCEL": "Booking cancelled and refund initiated automatically."}
+    if action == "CANCEL":
+        notify_user(booking.customer, "Ride cancelled — refund initiated", f"Your {booking.vehicle.display_name} booking was cancelled by the shop. Reason: {booking.shopkeeper_cancellation_reason}. Your refund has been initiated.")
+    return JsonResponse({"ok": True, "message": labels[action]})
 
 
 @_shopkeeper_only

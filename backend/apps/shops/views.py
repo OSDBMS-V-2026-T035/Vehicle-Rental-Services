@@ -6,6 +6,7 @@ from django.db.models import Sum
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET, require_POST
+from django.utils import timezone
 
 from apps.accounts.models import ShopkeeperProfile, User
 from apps.bookings.models import Booking
@@ -106,8 +107,23 @@ def update_shopkeeper_profile(request):
     name = " ".join(request.POST.get("shop_name", "").strip().split())
     address = " ".join(request.POST.get("shop_address", "").strip().split())
     description = " ".join(request.POST.get("shop_description", "").strip().split())
+    legal_business_name = " ".join(request.POST.get("legal_business_name", "").strip().split())
+    proprietor_name = " ".join(request.POST.get("proprietor_name", "").strip().split())
+    business_type = request.POST.get("business_type", "").strip()
+    pan_number = request.POST.get("pan_number", "").strip().upper()
+    gstin = request.POST.get("gstin", "").strip().upper()
+    aadhaar_last4 = "".join(char for char in request.POST.get("aadhaar_last4", "") if char.isdigit())
     if len(name) < 2 or len(address) < 8 or len(description) < 20:
         return JsonResponse({"ok": False, "message": "Enter a shop name, complete address, and at least 20 characters describing your shop."}, status=400)
+    if len(legal_business_name) < 2 or len(proprietor_name) < 2 or not business_type or len(pan_number) != 10 or len(aadhaar_last4) != 4:
+        return JsonResponse({"ok": False, "message": "Complete legal business name, proprietor, business type, PAN and last 4 Aadhaar digits."}, status=400)
+    if gstin and len(gstin) != 15:
+        return JsonResponse({"ok": False, "message": "GSTIN must contain 15 characters, or leave it blank if not registered."}, status=400)
+    upload_fields = ("shop_photo", "address_proof", "pan_document", "aadhaar_document", "gst_certificate")
+    for field in upload_fields:
+        upload = request.FILES.get(field)
+        if upload and upload.size > 8 * 1024 * 1024:
+            return JsonResponse({"ok": False, "message": f"{field.replace('_', ' ').title()} must be 8 MB or smaller."}, status=400)
     try:
         latitude = Decimal(request.POST.get("latitude", "")) if request.POST.get("latitude") else None
         longitude = Decimal(request.POST.get("longitude", "")) if request.POST.get("longitude") else None
@@ -123,6 +139,23 @@ def update_shopkeeper_profile(request):
     profile.latitude = latitude
     profile.longitude = longitude
     profile.google_place_id = request.POST.get("place_id", "").strip()[:255]
+    profile.legal_business_name = legal_business_name
+    profile.proprietor_name = proprietor_name
+    profile.business_type = business_type[:40]
+    profile.pan_number = pan_number
+    profile.gstin = gstin
+    profile.aadhaar_last4 = aadhaar_last4
+    profile.business_registration_number = request.POST.get("business_registration_number", "").strip()[:80]
+    for field in upload_fields:
+        if request.FILES.get(field):
+            setattr(profile, field, request.FILES[field])
+    # GST certificate is required only when the operator declares a GSTIN.
+    missing = [field for field in ("shop_photo", "address_proof", "pan_document", "aadhaar_document") if not getattr(profile, field)]
+    if gstin and not profile.gst_certificate:
+        missing.append("gst_certificate")
+    if missing:
+        return JsonResponse({"ok": False, "message": "Upload shop photo, address proof, PAN and Aadhaar documents" + (", plus GST certificate." if gstin else ".")}, status=400)
+    profile.profile_completed_at = timezone.now()
     if profile.verification_status == ShopkeeperProfile.VerificationStatus.REJECTED:
         profile.verification_status = ShopkeeperProfile.VerificationStatus.PENDING
     profile.save()
@@ -138,9 +171,9 @@ def search_shops(request):
     query = request.GET.get("q", "").strip().lower()
     latitude, longitude = _coordinates(request)
     try:
-        radius = min(max(float(request.GET.get("radius", "25")), 1), 500)
+        radius = min(max(float(request.GET.get("radius", "15")), 1), 15)
     except ValueError:
-        radius = 25
+        radius = 15
     profiles = ShopkeeperProfile.objects.filter(
         verification_status=ShopkeeperProfile.VerificationStatus.VERIFIED,
         user__is_active=True,
