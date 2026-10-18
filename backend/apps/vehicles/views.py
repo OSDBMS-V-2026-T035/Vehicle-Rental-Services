@@ -11,6 +11,8 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
+from apps.integrations.maps import get_directions_adapter
+
 from apps.accounts.models import ShopkeeperProfile, User
 from apps.bookings.models import Booking
 from apps.bookings.services import active_reservation_filter, expire_checkout_holds
@@ -103,10 +105,7 @@ def _vehicle_payload(vehicle, distance=None, reserved_units=None):
     if profile.latitude is not None and profile.longitude is not None:
         result["shop_latitude"] = float(profile.latitude)
         result["shop_longitude"] = float(profile.longitude)
-        result["directions_url"] = (
-            "https://www.google.com/maps/dir/?api=1&destination="
-            f"{profile.latitude},{profile.longitude}"
-        )
+        result["directions_url"] = get_directions_adapter().directions_url(profile.latitude, profile.longitude)
     if distance is not None:
         result["distance_km"] = round(distance, 1)
     return result

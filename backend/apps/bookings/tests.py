@@ -270,3 +270,15 @@ class HandoverWorkflowTests(TestCase):
         self.assertEqual(self.booking.status, Booking.Status.CONFIRMED)
         self.assertEqual(inspection.status, BookingInspection.Status.EXPIRED)
 
+    def test_handover_qr_contains_only_the_short_lived_stage_payload(self):
+        from .handover import handover_qr_svg
+
+        svg = handover_qr_svg(
+            booking_id=self.booking.id,
+            stage="PICKUP",
+            code="123456",
+        )
+
+        self.assertIn("<svg", svg)
+        self.assertNotIn("handover-renter@example.com", svg)
+

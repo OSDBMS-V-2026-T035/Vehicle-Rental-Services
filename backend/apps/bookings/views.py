@@ -17,7 +17,7 @@ from apps.payments.models import PaymentTransaction
 from apps.adminpanel.models import AuditLog
 from apps.vehicles.models import Vehicle
 from .models import Booking
-from .handover import HANDOVER_CODE_TTL_MINUTES, issue_handover_code
+from .handover import HANDOVER_CODE_TTL_MINUTES, handover_qr_svg, issue_handover_code
 from .services import create_checkout_booking, create_locked_booking, expire_checkout_holds
 from apps.accounts.models import phone_validator
 from apps.verification.services import validate_aadhaar
@@ -215,6 +215,7 @@ def request_handover_code(request, booking_id):
         "ok": True,
         "stage": stage,
         "code": issued["code"],
+        "qr_svg": handover_qr_svg(booking_id=booking_id, stage=stage, code=issued["code"]),
         "expires_at": issued["expires_at"].isoformat(),
         "expires_in_seconds": HANDOVER_CODE_TTL_MINUTES * 60,
         "message": "Share this one-time code with your shopkeeper in person. It expires in 10 minutes.",

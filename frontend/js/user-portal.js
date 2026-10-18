@@ -286,7 +286,8 @@
       const result = modal.querySelector('.handover-code-result');
       try {
         const response = await request(`/api/bookings/${button.dataset.bookingId}/handover-code/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage: button.dataset.handoverCode }) });
-        result.innerHTML = `Code <strong>${escape(response.code)}</strong> · expires in 10 minutes. ${escape(response.message)}`;
+        const svg = typeof response.qr_svg === 'string' ? btoa(response.qr_svg) : '';
+        result.innerHTML = `<span>Code <strong>${escape(response.code)}</strong> · expires in 10 minutes.</span>${svg ? `<figure class="handover-qr"><img src="data:image/svg+xml;base64,${svg}" alt="QR code for the ${escape(response.stage || button.dataset.handoverCode).toLowerCase()} handover"><figcaption>Shopkeeper can scan this QR, or enter the 6-digit code.</figcaption></figure>` : ''}<small>${escape(response.message)}</small>`;
         result.classList.remove('error');
       } catch (error) { result.textContent = error.message; result.classList.add('error'); }
       finally { button.disabled = false; }

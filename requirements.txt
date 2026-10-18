@@ -4,3 +4,4 @@ gunicorn>=23.0,<24.0
 setuptools<81
 razorpay>=1.4,<2.0
 reportlab>=4.0,<5.0
+qrcode>=8.0,<9.0

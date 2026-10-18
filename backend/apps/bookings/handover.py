@@ -2,6 +2,7 @@
 
 import secrets
 from datetime import timedelta
+from io import BytesIO
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import transaction
@@ -16,6 +17,18 @@ HANDOVER_CODE_TTL_MINUTES = 10
 HANDOVER_CODE_RESEND_SECONDS = 30
 HANDOVER_CODE_MAX_ATTEMPTS = 5
 CHECKLIST_FIELDS = ("exterior", "lights", "tires", "brakes", "mirrors", "documents", "keys")
+
+
+def handover_qr_svg(*, booking_id, stage, code):
+    """Create a local QR image for an in-person, short-lived handover."""
+    import qrcode
+    import qrcode.image.svg
+
+    payload = f"ridehub-handover:v1:{booking_id}:{stage}:{code}"
+    image = qrcode.make(payload, image_factory=qrcode.image.svg.SvgPathImage, border=2)
+    output = BytesIO()
+    image.save(output)
+    return output.getvalue().decode("utf-8")
 
 
 def validate_inspection_payload(payload):

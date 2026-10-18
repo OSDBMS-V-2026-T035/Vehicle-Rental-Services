@@ -2,18 +2,15 @@
 import json
 import logging
 import secrets
-from base64 import b64encode
 from datetime import timedelta
-from email.utils import parseaddr
 from html import escape
-from urllib import request as urlrequest
 
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
-from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.utils import timezone
 
+from apps.integrations.email import get_transactional_email_adapter
 from .models import OTPChallenge
 
 logger = logging.getLogger(__name__)
@@ -50,28 +47,9 @@ def _template(title, preheader, body):
 <tr><td style="padding:18px 30px;background:#f6f9fc;border-top:1px solid #e1eaf2;color:#718197;font-size:11px;line-height:1.55;">This is an automated message from {company}. Please do not share passwords, OTPs, or secure links with anyone.<br/>For assistance, reply to this email or contact RideHub support.</td></tr>
 </table></td></tr></table></body></html>'''
 def send_transactional_email(recipient, subject, title, preheader, body, *, attachments=None):
-    """Use Brevo's API when configured, otherwise the configured SMTP backend."""
-    api_key = getattr(settings, "BREVO_API_KEY", "")
-    default_name, default_email = parseaddr(getattr(settings, "DEFAULT_FROM_EMAIL", ""))
-    sender_email = getattr(settings, "BREVO_SENDER_EMAIL", "") or default_email
-    sender_name = getattr(settings, "BREVO_SENDER_NAME", "") or default_name or "RideHub"
+    """Deliver using the configured transactional-email adapter."""
     html = _template(title, preheader, body)
-    if api_key and sender_email:
-        payload_data = {"sender": {"email": sender_email, "name": sender_name or "RideHub"}, "to": [{"email": recipient}], "subject": subject, "htmlContent": html, "textContent": f"{title}\n\n{preheader}"}
-        if attachments:
-            payload_data["attachment"] = [{"name": name, "content": b64encode(content).decode("ascii")} for name, content, _mime in attachments]
-        payload = json.dumps(payload_data).encode("utf-8")
-        req = urlrequest.Request("https://api.brevo.com/v3/smtp/email", data=payload, headers={"accept": "application/json", "api-key": api_key, "content-type": "application/json"}, method="POST")
-        with urlrequest.urlopen(req, timeout=10):
-            return "brevo"
-    if getattr(settings, "EMAIL_HOST_USER", ""):
-        message = EmailMultiAlternatives(subject, preheader, settings.DEFAULT_FROM_EMAIL, [recipient])
-        message.attach_alternative(html, "text/html")
-        for name, content, mime in attachments or ():
-            message.attach(name, content, mime)
-        message.send(fail_silently=False)
-        return "smtp"
-    return "console"
+    return get_transactional_email_adapter().send(recipient, subject, f"{title}\n\n{preheader}", html, attachments)
 
 
 def send_otp(contact, channel, purpose, request):

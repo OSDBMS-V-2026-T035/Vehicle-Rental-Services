@@ -7,6 +7,8 @@ from django.db.models import Sum
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET, require_POST
+
+from apps.integrations.maps import get_directions_adapter
 from django.utils import timezone
 
 from apps.accounts.models import ShopkeeperProfile, User
@@ -53,10 +55,7 @@ def _shop_payload(profile, distance=None):
     if distance is not None:
         result["distance_km"] = round(distance, 1)
     if result["latitude"] is not None and result["longitude"] is not None:
-        result["directions_url"] = (
-            "https://www.google.com/maps/dir/?api=1&destination="
-            f"{result['latitude']},{result['longitude']}"
-        )
+        result["directions_url"] = get_directions_adapter().directions_url(result["latitude"], result["longitude"])
     return result
 
 
