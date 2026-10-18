@@ -250,9 +250,8 @@ def remove_vehicle(request, vehicle_id):
             return JsonResponse({"ok": False, "message": "Vehicle not found in your fleet."}, status=404)
         if Booking.objects.filter(
             vehicle=vehicle,
-            status__in=[Booking.Status.PENDING, Booking.Status.CONFIRMED],
             return_date__gte=timezone.localdate(),
-        ).exists():
+        ).filter(active_reservation_filter()).exists():
             return JsonResponse({"ok": False, "message": "Resolve current or upcoming bookings before removing this vehicle."}, status=409)
         vehicle.is_available = False
         vehicle.listing_status = Vehicle.ListingStatus.REJECTED
@@ -283,9 +282,8 @@ def update_vehicle_inventory(request, vehicle_id):
             return JsonResponse({"ok": False, "message": "Vehicle not found in your fleet."}, status=404)
         reserved = Booking.objects.filter(
             vehicle=vehicle,
-            status__in=[Booking.Status.PENDING, Booking.Status.CONFIRMED],
             return_date__gte=timezone.localdate(),
-        ).count()
+        ).filter(active_reservation_filter()).count()
         if quantity < reserved:
             return JsonResponse({"ok": False, "message": f"This listing has {reserved} active or upcoming reservation(s). Increase quantity or resolve them first."}, status=409)
         vehicle.quantity = quantity

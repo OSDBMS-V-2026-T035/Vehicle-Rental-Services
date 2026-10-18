@@ -12,6 +12,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from apps.bookings.handover import record_handover_inspection
 from apps.bookings.models import Booking, BookingInspection
+from apps.bookings.services import active_reservation_filter
 from apps.payments.models import PaymentTransaction
 from apps.vehicles.models import Vehicle
 from apps.notifications.services import notify_user
@@ -141,7 +142,7 @@ def set_vehicle_availability(request, profile, vehicle_id):
             vehicle = Vehicle.objects.select_for_update().get(pk=vehicle_id, shopkeeper=profile)
             if vehicle.listing_status != Vehicle.ListingStatus.APPROVED:
                 return JsonResponse({"ok": False, "message": "Only approved listings can have availability changed."}, status=409)
-            if not available and Booking.objects.filter(vehicle=vehicle, status__in=[Booking.Status.PENDING, Booking.Status.CONFIRMED], return_date__gte=timezone.localdate()).exists():
+            if not available and Booking.objects.filter(vehicle=vehicle, return_date__gte=timezone.localdate()).filter(active_reservation_filter()).exists():
                 return JsonResponse({"ok": False, "message": "This vehicle has a current or upcoming reservation. Resolve it before marking unavailable."}, status=409)
             vehicle.is_available = available
             vehicle.save(update_fields=["is_available", "updated_at"])
