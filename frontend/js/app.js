@@ -145,27 +145,35 @@ function renderLiveResults(items, kind) {
     resultsPanel.hidden = false;
     document.querySelector('#live-results-count').textContent = `${items.length} found`;
     if (!items.length) {
-        resultsGrid.innerHTML = `<div class="live-empty">No verified sellers available near this location right now.</div>`;
+        resultsGrid.innerHTML = `<div class="live-empty">No verified, available listings were found within 15 km of this location.</div>`;
         return;
     }
-    resultsGrid.innerHTML = items.map((item) => {
-        const title = kind === 'shops' ? item.name : item.name;
-        const subtitle = kind === 'shops' ? `${item.vehicle_count} approved vehicle(s)` : `₹${item.daily_rate}/day · ${item.shop}`;
-        const image = kind === 'vehicles' && item.image_url ? `<img class="live-result-thumb" src="${escapeHtml(item.image_url)}" alt="${escapeHtml(title)}">` : '';
+    const rows = items.map((item) => {
+        const title = item.name;
+        const image = kind === 'vehicles' && item.image_url ? `<img class="live-result-thumb" src="${escapeHtml(item.image_url)}" alt="${escapeHtml(title)}">` : '<span class="live-result-placeholder">⌁</span>';
         const unavailable = kind === 'vehicles' && item.availability_status === 'UNAVAILABLE';
         const bookingParams = new URLSearchParams({ vehicle_id: item.id, pickup_date: pickupDate.value, return_date: returnDate.value, checkout: '1' });
         const authUrl = `/auth/?role=USER&mode=login&next=${encodeURIComponent(`/user-portal/?${bookingParams.toString()}`)}`;
-        const book = kind === 'vehicles' ? `<a class="result-direction${unavailable ? ' is-disabled' : ''}" ${unavailable ? 'aria-disabled="true"' : `href="${authUrl}"`}>${unavailable ? 'Unavailable' : 'Book this ride →'}</a>` : '';
-        return `<article class="live-result-card">${image}<div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(subtitle)}</small><p>${escapeHtml(item.address || '')}${item.distance_km !== undefined ? ` · ${item.distance_km} km away` : ''}</p>${kind === 'vehicles' ? `<small>${escapeHtml(item.availability_message || '')}</small>` : ''}</div>${book}${item.directions_url ? `<a class="result-direction" href="${escapeHtml(item.directions_url)}" target="_blank" rel="noopener">Directions ↗</a>` : ''}</article>`;
+        const book = kind === 'vehicles' ? `<a class="result-direction${unavailable ? ' is-disabled' : ''}" ${unavailable ? 'aria-disabled="true"' : `href="${authUrl}"`}>${unavailable ? 'Unavailable' : 'Book now'}</a>` : '';
+        const distance = item.distance_km !== undefined ? `${item.distance_km} km` : '—';
+        if (kind === 'shops') return `<tr><td><div class="live-vehicle-cell">${image}<span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(item.address || 'Verified shop location')}</small></span></div></td><td>${escapeHtml(String(item.vehicle_count || 0))} vehicle(s)</td><td>${escapeHtml(distance)}</td><td>${item.directions_url ? `<a class="result-direction" href="${escapeHtml(item.directions_url)}" target="_blank" rel="noopener">Directions</a>` : '—'}</td></tr>`;
+        return `<tr><td><div class="live-vehicle-cell">${image}<span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(item.brand || '')} · ${escapeHtml(item.model || '')}</small></span></div></td><td><strong>₹${escapeHtml(item.daily_rate)}</strong><small>per day</small></td><td><strong>${escapeHtml(item.shop)}</strong><small>${escapeHtml(item.address || 'Verified location')}</small></td><td>${escapeHtml(distance)}</td><td><span class="live-availability ${unavailable ? 'unavailable' : ''}">${escapeHtml(item.availability_message || 'Available')}</span></td><td><div class="live-actions">${book}${item.directions_url ? `<a class="result-direction result-direction-secondary" href="${escapeHtml(item.directions_url)}" target="_blank" rel="noopener">Directions</a>` : ''}</div></td></tr>`;
     }).join('');
+    const headings = kind === 'shops' ? '<tr><th>Shop</th><th>Fleet</th><th>Distance</th><th>Action</th></tr>' : '<tr><th>Vehicle</th><th>Rate</th><th>Shop</th><th>Distance</th><th>Availability</th><th>Action</th></tr>';
+    resultsGrid.innerHTML = `<div class="live-table-wrap"><table class="live-results-table"><thead>${headings}</thead><tbody>${rows}</tbody></table></div>`;
 }
 
 async function loadLiveResults(type, location) {
     const latitude = document.querySelector('#location-latitude').value;
     const longitude = document.querySelector('#location-longitude').value;
-    const params = new URLSearchParams({ vehicle_type: type, q: location, pickup_date: pickupDate.value, return_date: returnDate.value });
+    // Browser geolocation stores a human-readable label such as
+    // "Current location: 30.272890, 77.900000" in the text box.  That label
+    // is not a shop/address keyword, so never apply it as a text filter when
+    // real coordinates are available; use only the 15 km geo-radius.
+    const hasCoordinates = Boolean(latitude && longitude);
+    const params = new URLSearchParams({ vehicle_type: type, q: hasCoordinates ? '' : location, pickup_date: pickupDate.value, return_date: returnDate.value, radius: '15' });
     if (latitude && longitude) { params.set('latitude', latitude); params.set('longitude', longitude); }
-    const endpoint = searchMode === 'shop' ? `/api/shops/search/?q=${encodeURIComponent(location)}&latitude=${encodeURIComponent(latitude)}&longitude=${encodeURIComponent(longitude)}` : `/api/vehicles/search/?${params}`;
+    const endpoint = searchMode === 'shop' ? `/api/shops/search/?q=${encodeURIComponent(hasCoordinates ? '' : location)}&latitude=${encodeURIComponent(latitude)}&longitude=${encodeURIComponent(longitude)}&radius=15` : `/api/vehicles/search/?${params}`;
     try {
         const response = await fetch(endpoint);
         const data = await response.json();
@@ -187,10 +195,10 @@ form.addEventListener('submit', async (event) => {
     const type = document.querySelector('#vehicle-type').value;
     const location = document.querySelector('#location').value.split(',')[0];
     message.style.color = '#71c5ff';
-    message.textContent = `Searching verified ${searchMode === 'shop' ? 'shops' : type === 'all' ? 'vehicles' : `${type}s`} near ${location}.`;
+    message.textContent = `Searching verified ${searchMode === 'shop' ? 'shops' : type === 'all' ? 'vehicles' : `${type}s`} within 15 km of ${location}.`;
     await loadLiveResults(type, location);
     filterVehicles(type);
-    document.querySelector('#trending').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
 const emptyState = document.querySelector('#empty-state');
