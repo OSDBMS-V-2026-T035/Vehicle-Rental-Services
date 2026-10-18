@@ -114,7 +114,29 @@
     } catch (error) { content.querySelector('.card').innerHTML = empty(error.message); }
   }
 
-  async function reservationAction(id, action) { const reason = action === 'CANCEL' ? prompt('Cancellation reason (this starts the customer refund):') : ''; if (action === 'CANCEL' && !reason) return; if (!confirm(action === 'CANCEL' ? 'Cancel this ride and initiate its refund?' : `Confirm ${action.replace('_', ' ').toLowerCase()}?`)) return; try { const data = await api(`/api/shopkeeper/reservations/${id}/action/`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action, reason})}); message('reservation-message', data.message); setTimeout(reservations, 500); } catch (error) { message('reservation-message', error.message, true); } }
+  function openInspection(id, action) {
+    const stage = action === 'TAKEOVER' ? 'pickup' : 'return';
+    const fields = [['exterior','Exterior/body'],['lights','Lights'],['tires','Tyres'],['brakes','Brakes'],['mirrors','Mirrors'],['documents','Vehicle documents'],['keys','Keys']];
+    const overlay = document.createElement('div'); overlay.className = 'checkout-overlay shop-inspection-overlay';
+    overlay.innerHTML = `<section class="checkout-modal shop-inspection-modal" role="dialog" aria-modal="true" aria-labelledby="inspection-title"><button class="modal-close" type="button" aria-label="Close">×</button><p class="user-eyebrow">DIGITAL ${stage.toUpperCase()} INSPECTION</p><h2 id="inspection-title">${stage === 'pickup' ? 'Vehicle pickup' : 'Vehicle return'}</h2><p>Complete the checklist with the customer present. The customer generates a one-time code from My bookings.</p><form id="shop-inspection-form"><label>Customer code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></label><div class="inspection-fields">${fields.map(([key,label]) => `<label>${label}<select name="${key}" required><option value="">Choose condition</option><option value="true">Pass</option><option value="false">Needs attention</option></select></label>`).join('')}</div><div class="inspection-fields"><label>Odometer (km)<input name="odometer_km" type="number" min="0" max="2000000" step="1" required></label><label>Fuel / battery (%)<input name="fuel_percent" type="number" min="0" max="100" step="1" required></label></div><label>Notes (optional)<textarea name="notes" maxlength="1000" rows="3"></textarea></label><p class="inspection-message" aria-live="polite"></p><button class="form-action" type="submit">Verify code & record ${stage} inspection</button></form></section>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove(); overlay.querySelector('.modal-close').addEventListener('click', close); overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+    overlay.querySelector('#shop-inspection-form').addEventListener('submit', async event => {
+      event.preventDefault(); const form = event.currentTarget; const submit = form.querySelector('[type="submit"]'); const messageTarget = form.querySelector('.inspection-message'); submit.disabled = true; messageTarget.textContent = 'Saving inspection…';
+      const formData = new FormData(form); const condition_checklist = Object.fromEntries(fields.map(([key]) => [key, formData.get(key) === 'true']));
+      const body = { action, code: formData.get('code'), odometer_km: formData.get('odometer_km'), fuel_percent: formData.get('fuel_percent'), condition_checklist, notes: formData.get('notes') };
+      try { const result = await api(`/api/shopkeeper/reservations/${id}/action/`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}); close(); message('reservation-message', result.message); setTimeout(reservations, 500); }
+      catch (error) { messageTarget.textContent = error.message; messageTarget.classList.add('error'); submit.disabled = false; }
+    });
+  }
+
+  async function reservationAction(id, action) {
+    if (action === 'TAKEOVER' || action === 'RECEIVED_BACK') return openInspection(id, action);
+    const reason = prompt('Cancellation reason (this starts the customer refund):'); if (!reason) return;
+    if (!confirm('Cancel this ride and initiate its refund?')) return;
+    try { const data = await api(`/api/shopkeeper/reservations/${id}/action/`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action, reason})}); message('reservation-message', data.message); setTimeout(reservations, 500); }
+    catch (error) { message('reservation-message', error.message, true); }
+  }
   async function availability(id, available) { try { const data = await api(`/api/shopkeeper/vehicles/${id}/availability/`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({is_available:available})}); message('fleet-message', data.message); setTimeout(vehicles, 500); } catch (error) { message('fleet-message', error.message, true); } }
   async function removeVehicle(id) { if (!confirm('Remove this vehicle from the marketplace? Booking history will remain protected.')) return; try { const data = await api(`/api/shopkeeper/vehicles/${id}/remove/`, {method:'POST'}); message('fleet-message', data.message); setTimeout(vehicles, 500); } catch (error) { message('fleet-message', error.message, true); } }
   async function saveFare(id) { const input = document.querySelector(`[data-fare-input="${id}"]`); try { const data = await api(`/api/shopkeeper/vehicles/${id}/rate/`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({daily_rate:input?.value})}); message('fare-message', data.message); setTimeout(fares, 500); } catch (error) { message('fare-message', error.message, true); } }

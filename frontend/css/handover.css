@@ -1,0 +1,7 @@
+.shop-inspection-overlay{position:fixed;z-index:80;inset:0;display:grid;place-items:center;padding:20px;background:rgba(2,8,15,.78);backdrop-filter:blur(8px)}
+.shop-inspection-modal{position:relative;width:min(660px,100%);max-height:calc(100vh - 40px);overflow:auto;padding:28px;border:1px solid rgba(115,193,249,.35);border-radius:20px;background:linear-gradient(145deg,#10283f,#091827);box-shadow:0 28px 90px rgba(0,0,0,.5)}
+.shop-inspection-modal h2{margin:0;color:#f4f9ff;font-size:24px}.shop-inspection-modal>p:not(.user-eyebrow){color:#9fb2c5;font-size:12px;line-height:1.55}
+.shop-inspection-modal form{display:grid;gap:13px}.shop-inspection-modal form>label,.inspection-fields label{display:grid;gap:7px;color:#d9e9f8;font-size:11px;font-weight:700}
+.shop-inspection-modal input,.shop-inspection-modal select,.shop-inspection-modal textarea{width:100%;min-height:42px;padding:9px 11px;border:1px solid rgba(111,167,211,.3);border-radius:9px;outline:0;color:#f1f7ff;background:#081827;font:inherit}
+.shop-inspection-modal input:focus,.shop-inspection-modal select:focus,.shop-inspection-modal textarea:focus{border-color:#58b8f2;box-shadow:0 0 0 3px rgba(61,164,234,.12)}.inspection-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.inspection-message{margin:0;color:#a5ddff;font-size:11px}.inspection-message.error{color:#ffb1c0}
+@media(max-width:600px){.shop-inspection-modal{padding:22px}.inspection-fields{grid-template-columns:1fr}}
