@@ -34,6 +34,17 @@ class Vehicle(models.Model):
     )
     description = models.TextField(blank=True)
     image = models.FileField(upload_to="vehicle-images/%Y/%m/", blank=True, null=True)
+    rc_number = models.CharField(max_length=40, blank=True)
+    rc_document = models.FileField(upload_to="vehicle-documents/%Y/%m/", blank=True, null=True)
+    insurance_document = models.FileField(upload_to="vehicle-documents/%Y/%m/", blank=True, null=True)
+    insurance_policy_number = models.CharField(max_length=80, blank=True)
+    insurance_expiry_date = models.DateField(null=True, blank=True)
+    puc_document = models.FileField(upload_to="vehicle-documents/%Y/%m/", blank=True, null=True)
+    puc_expiry_date = models.DateField(null=True, blank=True)
+    vehicle_photo_front = models.FileField(upload_to="vehicle-images/%Y/%m/", blank=True, null=True)
+    vehicle_photo_rear = models.FileField(upload_to="vehicle-images/%Y/%m/", blank=True, null=True)
+    vehicle_photo_left = models.FileField(upload_to="vehicle-images/%Y/%m/", blank=True, null=True)
+    vehicle_photo_right = models.FileField(upload_to="vehicle-images/%Y/%m/", blank=True, null=True)
     quantity = models.PositiveSmallIntegerField(
         default=1, validators=[MinValueValidator(1), MaxValueValidator(999)]
     )

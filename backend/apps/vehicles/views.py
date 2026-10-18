@@ -13,6 +13,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from apps.accounts.models import ShopkeeperProfile, User
 from apps.bookings.models import Booking
+from apps.bookings.services import active_reservation_filter, expire_checkout_holds
 from django.db import transaction
 from .models import Vehicle
 
@@ -35,6 +36,16 @@ def _validate_vehicle_image(upload):
         raise ValidationError("Vehicle photo must be an image file.")
     if upload.size > 5 * 1024 * 1024:
         raise ValidationError("Vehicle photo must be 5 MB or smaller.")
+
+
+def _validate_document(upload, label):
+    if not upload:
+        raise ValidationError(f"Upload the {label}.")
+    if upload.size > 8 * 1024 * 1024:
+        raise ValidationError(f"{label} must be 8 MB or smaller.")
+    content_type = upload.content_type or ""
+    if content_type and not (content_type.startswith("image/") or content_type == "application/pdf"):
+        raise ValidationError(f"{label} must be a PDF or image file.")
 
 
 def _distance_km(lat1, lon1, lat2, lon2):
@@ -121,12 +132,26 @@ def create_vehicle(request):
         return JsonResponse({"ok": False, "message": "Only shopkeepers can submit vehicles."}, status=403)
     profile = getattr(request.user, "shopkeeper_profile", None)
     if not profile or profile.verification_status != ShopkeeperProfile.VerificationStatus.VERIFIED:
-        return JsonResponse({"ok": False, "message": "Admin verification is required before listing vehicles."}, status=403)
+        return JsonResponse({"ok": False, "message": "Complete your compliance profile and obtain admin verification before submitting vehicles."}, status=403)
+    if not profile.is_compliance_complete:
+        return JsonResponse({"ok": False, "message": "Complete your shop compliance profile before submitting vehicles."}, status=409)
     if request.POST.get("vehicle_type", "").strip().lower() == "cycle":
         return JsonResponse({"ok": False, "message": "Bicycle listings are no longer supported."}, status=400)
     try:
-        uploaded_image = request.FILES.get("image")
-        _validate_vehicle_image(uploaded_image)
+        photos = {key: request.FILES.get(key) for key in ("vehicle_photo_front", "vehicle_photo_rear", "vehicle_photo_left", "vehicle_photo_right")}
+        for label, upload in photos.items():
+            if not upload:
+                raise ValidationError("Upload clear front, rear, left and right vehicle photos.")
+            _validate_vehicle_image(upload)
+        rc_document = request.FILES.get("rc_document")
+        insurance_document = request.FILES.get("insurance_document")
+        _validate_document(rc_document, "RC document")
+        _validate_document(insurance_document, "insurance document")
+        uploaded_image = photos["vehicle_photo_front"]
+        rc_number = request.POST.get("rc_number", "").strip().upper()
+        policy_number = request.POST.get("insurance_policy_number", "").strip().upper()
+        if not rc_number or not policy_number or not request.POST.get("insurance_expiry_date"):
+            raise ValidationError("Enter RC number, insurance policy number and insurance expiry date.")
         vehicle = Vehicle(
             shopkeeper=profile,
             vehicle_type=request.POST.get("vehicle_type", "").strip().lower(),
@@ -143,11 +168,20 @@ def create_vehicle(request):
             available_quantity=int(request.POST.get("quantity", "1")),
             description=request.POST.get("description", "").strip(),
             image=uploaded_image,
-            # A verified shopkeeper has already passed the platform gate. New
-            # inventory is therefore searchable immediately; administrators
-            # retain moderation controls for exceptional cases.
-            listing_status=Vehicle.ListingStatus.APPROVED,
-            admin_note="Published by verified shopkeeper; available for audit.",
+            rc_number=rc_number,
+            rc_document=rc_document,
+            insurance_document=insurance_document,
+            insurance_policy_number=policy_number,
+            insurance_expiry_date=request.POST.get("insurance_expiry_date"),
+            puc_document=request.FILES.get("puc_document"),
+            puc_expiry_date=request.POST.get("puc_expiry_date") or None,
+            vehicle_photo_front=photos["vehicle_photo_front"],
+            vehicle_photo_rear=photos["vehicle_photo_rear"],
+            vehicle_photo_left=photos["vehicle_photo_left"],
+            vehicle_photo_right=photos["vehicle_photo_right"],
+            listing_status=Vehicle.ListingStatus.PENDING,
+            is_available=False,
+            admin_note="Submitted for RideHub document review.",
         )
         vehicle.full_clean()
         vehicle.save()
@@ -161,7 +195,7 @@ def create_vehicle(request):
         return JsonResponse({"ok": False, "message": "That registration number is already registered. Use a unique vehicle registration number."}, status=409)
     except DatabaseError:
         return JsonResponse({"ok": False, "message": "The vehicle database schema is not ready. Run the RideHub migration command and try again."}, status=503)
-    return JsonResponse({"ok": True, "message": "Vehicle listed successfully. It is now visible to customers.", "id": vehicle.id})
+    return JsonResponse({"ok": True, "message": "Vehicle submitted successfully. The RideHub team will verify its documents before it becomes active.", "id": vehicle.id})
 
 
 @login_required
@@ -253,14 +287,14 @@ def vehicle_detail(request, vehicle_id):
     from django.utils.dateparse import parse_date
     pickup = parse_date(request.GET.get("pickup_date", "")) if request.GET.get("pickup_date") else None
     return_date = parse_date(request.GET.get("return_date", "")) if request.GET.get("return_date") else None
+    expire_checkout_holds()
     reserved = None
     if pickup and return_date:
         reserved = Booking.objects.filter(
             vehicle=vehicle,
-            status__in=[Booking.Status.PENDING, Booking.Status.CONFIRMED],
             pickup_date__lte=return_date,
             return_date__gte=pickup,
-        ).count()
+        ).filter(active_reservation_filter()).count()
     return JsonResponse({"ok": True, "vehicle": _vehicle_payload(vehicle, reserved_units=reserved)})
 
 
@@ -269,6 +303,7 @@ def search_vehicles(request):
     date_error = _date_error(request)
     if date_error:
         return JsonResponse({"ok": False, "message": date_error}, status=400)
+    expire_checkout_holds()
     vehicle_type = request.GET.get("vehicle_type", "all").lower()
     query = request.GET.get("q", "").strip().lower()
     shop_id = request.GET.get("shop_id", "").strip()
@@ -303,9 +338,12 @@ def search_vehicles(request):
             reserved_units=Count(
                 "bookings",
                 filter=Q(
-                    bookings__status__in=["PENDING", "CONFIRMED"],
                     bookings__pickup_date__lte=return_date,
                     bookings__return_date__gte=pickup,
+                ) & (
+                    Q(bookings__status=Booking.Status.CONFIRMED)
+                    | Q(bookings__status=Booking.Status.PENDING, bookings__payment_expires_at__isnull=True)
+                    | Q(bookings__status=Booking.Status.PENDING, bookings__payment_expires_at__gt=timezone.now())
                 ),
             )
         )
@@ -320,9 +358,9 @@ def search_vehicles(request):
                 continue
             distance = _distance_km(latitude, longitude, float(vehicle.shopkeeper.latitude), float(vehicle.shopkeeper.longitude))
             try:
-                radius = min(max(float(request.GET.get("radius", "25")), 1), 500)
+                radius = min(max(float(request.GET.get("radius", "15")), 1), 15)
             except ValueError:
-                radius = 25
+                radius = 15
             if distance > radius:
                 continue
         matches.append(_vehicle_payload(vehicle, distance, getattr(vehicle, "reserved_units", None)))
