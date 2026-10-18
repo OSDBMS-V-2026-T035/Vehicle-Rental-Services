@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from .documents import _document_bytes
 from .models import Booking
+from .handover import CHECKLIST_FIELDS, validate_inspection_payload
 from .services import active_reservation_statuses
 
 
@@ -106,4 +107,44 @@ class ActiveReservationQueryTests(TestCase):
         reserved = Booking.objects.filter(vehicle=self.vehicle).filter(active_reservation_filter())
 
         self.assertEqual(reserved.count(), 3)
+
+
+class HandoverInspectionValidationTests(SimpleTestCase):
+    def _payload(self):
+        return {
+            "odometer_km": "12345",
+            "fuel_percent": "76",
+            "condition_checklist": {field: True for field in CHECKLIST_FIELDS},
+            "notes": "  Clean   condition  ",
+        }
+
+    def test_normalizes_handover_inspection_values(self):
+        self.assertEqual(validate_inspection_payload(self._payload()), {
+            "odometer_km": 12345,
+            "fuel_percent": 76,
+            "condition_checklist": {field: True for field in CHECKLIST_FIELDS},
+            "notes": "Clean condition",
+        })
+
+    def test_requires_every_boolean_checklist_item(self):
+        payload = self._payload()
+        payload["condition_checklist"].pop("brakes")
+        with self.assertRaisesMessage(ValueError, "Complete every vehicle condition checklist item."):
+            validate_inspection_payload(payload)
+
+    def test_rejects_out_of_range_meter_or_fuel_values(self):
+        payload = self._payload()
+        payload["fuel_percent"] = "101"
+        with self.assertRaisesMessage(ValueError, "Fuel/battery level must be a whole percentage from 0 to 100."):
+            validate_inspection_payload(payload)
+
+    def test_rejects_non_boolean_checklist_values_and_oversized_notes(self):
+        payload = self._payload()
+        payload["condition_checklist"]["lights"] = "yes"
+        with self.assertRaisesMessage(ValueError, "Every checklist item must be marked as passed or needs attention."):
+            validate_inspection_payload(payload)
+        payload = self._payload()
+        payload["notes"] = "x" * 1001
+        with self.assertRaisesMessage(ValueError, "Inspection notes must be 1,000 characters or fewer."):
+            validate_inspection_payload(payload)
 
