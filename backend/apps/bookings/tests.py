@@ -148,3 +148,125 @@ class HandoverInspectionValidationTests(SimpleTestCase):
         with self.assertRaisesMessage(ValueError, "Inspection notes must be 1,000 characters or fewer."):
             validate_inspection_payload(payload)
 
+
+class HandoverWorkflowTests(TestCase):
+    def setUp(self):
+        from apps.accounts.models import ShopkeeperProfile, User
+        from apps.payments.models import PaymentTransaction
+        from apps.vehicles.models import Vehicle
+
+        self.shopkeeper_user = User.objects.create_user(
+            email="handover-shop@example.com", phone_number="9876543220", password="safe-test-pass",
+            role=User.Role.SHOPKEEPER, is_email_verified=True,
+        )
+        self.shop = ShopkeeperProfile.objects.create(
+            user=self.shopkeeper_user, shop_name="Inspection Rentals", shop_address="Dehradun",
+            verification_status=ShopkeeperProfile.VerificationStatus.VERIFIED,
+        )
+        self.customer = User.objects.create_user(
+            email="handover-renter@example.com", phone_number="9876543221", password="safe-test-pass",
+            is_email_verified=True,
+        )
+        vehicle = Vehicle.objects.create(
+            shopkeeper=self.shop, vehicle_type=Vehicle.VehicleType.CAR, brand="Test",
+            model_name="Handover", registration_number="UK07CD1234", manufacturing_year=2024,
+            daily_rate="1000.00", listing_status=Vehicle.ListingStatus.APPROVED,
+        )
+        pickup = date.today() + timedelta(days=1)
+        self.booking = Booking.objects.create(
+            customer=self.customer, vehicle=vehicle, pickup_date=pickup,
+            return_date=pickup + timedelta(days=2), total_amount="2000.00",
+            status=Booking.Status.CONFIRMED,
+        )
+        PaymentTransaction.objects.create(
+            booking=self.booking, customer=self.customer, amount="2000.00",
+            status=PaymentTransaction.Status.PAID,
+        )
+        self.vehicle = vehicle
+
+    def _inspection_payload(self):
+        return {
+            "odometer_km": 12500,
+            "fuel_percent": 80,
+            "condition_checklist": {field: True for field in CHECKLIST_FIELDS},
+            "notes": "Pickup condition reviewed with renter.",
+        }
+
+    def test_pickup_and_return_codes_are_one_time_and_record_both_inspections(self):
+        from .handover import issue_handover_code, record_handover_inspection
+        from .models import BookingInspection
+
+        pickup = issue_handover_code(
+            customer=self.customer, booking_id=self.booking.id, stage=BookingInspection.Stage.PICKUP,
+        )
+        saved_pickup = BookingInspection.objects.get(booking=self.booking, stage=BookingInspection.Stage.PICKUP)
+        self.assertNotEqual(saved_pickup.code_hash, pickup["code"])
+        record_handover_inspection(
+            profile=self.shop, booking_id=self.booking.id, stage=BookingInspection.Stage.PICKUP,
+            code=pickup["code"], payload=self._inspection_payload(),
+        )
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.HANDED_OVER)
+        self.assertIsNotNone(self.booking.handover_at)
+
+        returned = issue_handover_code(
+            customer=self.customer, booking_id=self.booking.id, stage=BookingInspection.Stage.RETURN,
+        )
+        return_payload = self._inspection_payload() | {"odometer_km": 12640, "fuel_percent": 54}
+        record_handover_inspection(
+            profile=self.shop, booking_id=self.booking.id, stage=BookingInspection.Stage.RETURN,
+            code=returned["code"], payload=return_payload,
+        )
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.COMPLETED)
+        self.assertIsNotNone(self.booking.received_back_at)
+        self.assertEqual(
+            BookingInspection.objects.filter(booking=self.booking, status=BookingInspection.Status.CONFIRMED).count(),
+            2,
+        )
+
+    def test_wrong_code_attempt_is_saved_and_valid_code_is_single_use(self):
+        from .handover import issue_handover_code, record_handover_inspection
+        from .models import BookingInspection
+
+        challenge = issue_handover_code(
+            customer=self.customer, booking_id=self.booking.id, stage=BookingInspection.Stage.PICKUP,
+        )
+        with self.assertRaisesMessage(ValueError, "Handover code is incorrect."):
+            record_handover_inspection(
+                profile=self.shop, booking_id=self.booking.id, stage=BookingInspection.Stage.PICKUP,
+                code="000000" if challenge["code"] != "000000" else "000001",
+                payload=self._inspection_payload(),
+            )
+        inspection = BookingInspection.objects.get(booking=self.booking)
+        self.assertEqual(inspection.attempts, 1)
+        record_handover_inspection(
+            profile=self.shop, booking_id=self.booking.id, stage=BookingInspection.Stage.PICKUP,
+            code=challenge["code"], payload=self._inspection_payload(),
+        )
+        with self.assertRaisesMessage(ValueError, "This booking is not at the selected handover stage."):
+            record_handover_inspection(
+                profile=self.shop, booking_id=self.booking.id, stage=BookingInspection.Stage.PICKUP,
+                code=challenge["code"], payload=self._inspection_payload(),
+            )
+
+    def test_expired_code_is_consumed_without_changing_booking_state(self):
+        from django.utils import timezone
+
+        from .handover import issue_handover_code, record_handover_inspection
+        from .models import BookingInspection
+
+        challenge = issue_handover_code(
+            customer=self.customer, booking_id=self.booking.id, stage=BookingInspection.Stage.PICKUP,
+        )
+        with self.assertRaisesMessage(ValueError, "Handover code expired."):
+            record_handover_inspection(
+                profile=self.shop, booking_id=self.booking.id, stage=BookingInspection.Stage.PICKUP,
+                code=challenge["code"], payload=self._inspection_payload(),
+                now=timezone.now() + timedelta(minutes=11),
+            )
+        self.booking.refresh_from_db()
+        inspection = BookingInspection.objects.get(booking=self.booking)
+        self.assertEqual(self.booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(inspection.status, BookingInspection.Status.EXPIRED)
+
