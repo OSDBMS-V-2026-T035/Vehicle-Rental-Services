@@ -65,7 +65,7 @@ def admin_earnings(request):
     )[:100]
     total = PaymentTransaction.objects.filter(status=PaymentTransaction.Status.PAID).aggregate(total=Sum("amount"))["total"] or 0
     return JsonResponse({"ok": True, "total": str(total), "count": PaymentTransaction.objects.filter(status=PaymentTransaction.Status.PAID).count(), "payments": [{
-        "id": payment.id,
+        "id": payment.id, "booking_id": payment.booking_id,
         "amount": str(payment.amount),
         "customer": payment.customer.get_full_name() or payment.customer.email,
         "vehicle": payment.booking.vehicle.display_name,
@@ -85,6 +85,15 @@ def admin_catalog(request, resource):
             "email": row.user.email, "phone": row.user.phone_number,
             "description": row.shop_description, "latitude": str(row.latitude or ""), "longitude": str(row.longitude or ""),
             "current_location": f"{row.latitude}, {row.longitude}" if row.latitude is not None and row.longitude is not None else "Not added",
+            "legal_business_name": row.legal_business_name, "proprietor_name": row.proprietor_name,
+            "business_type": row.business_type, "gstin": row.gstin, "pan_number": row.pan_number,
+            "aadhaar_last4": row.aadhaar_last4, "business_registration_number": row.business_registration_number,
+            "compliance_complete": row.is_compliance_complete,
+            "shop_photo_url": row.shop_photo.url if row.shop_photo else "",
+            "address_proof_url": row.address_proof.url if row.address_proof else "",
+            "pan_document_url": row.pan_document.url if row.pan_document else "",
+            "aadhaar_document_url": row.aadhaar_document.url if row.aadhaar_document else "",
+            "gst_certificate_url": row.gst_certificate.url if row.gst_certificate else "",
             "status": row.verification_status, "vehicle_count": row.vehicle_count,
             "active": row.user.is_active, "action_url": f"/api/admin/shopkeepers/{row.id}/action/",
         } for row in rows]})
@@ -97,6 +106,11 @@ def admin_catalog(request, resource):
             "brand": row.brand, "model": row.model_name, "year": row.manufacturing_year,
             "fuel": row.fuel_type, "seats": row.seating_capacity, "description": row.description,
             "image_url": row.image.url if row.image else "",
+            "rc_number": row.rc_number, "insurance_policy_number": row.insurance_policy_number,
+            "insurance_expiry_date": row.insurance_expiry_date.isoformat() if row.insurance_expiry_date else "",
+            "rc_document_url": row.rc_document.url if row.rc_document else "",
+            "insurance_document_url": row.insurance_document.url if row.insurance_document else "",
+            "vehicle_photos": [photo.url for photo in (row.vehicle_photo_front, row.vehicle_photo_rear, row.vehicle_photo_left, row.vehicle_photo_right) if photo],
             "action_url": f"/api/admin/vehicles/{row.id}/action/",
         } for row in rows]})
     if resource == "bookings":
@@ -107,6 +121,8 @@ def admin_catalog(request, resource):
             "pickup": row.pickup_date.isoformat(), "return_date": row.return_date.isoformat(),
             "amount": str(row.total_amount), "status": row.status,
             "payment_status": row.payment.status if hasattr(row, "payment") else "PENDING",
+            "renter_email": row.renter_email or row.customer.email,
+            "renter_phone": row.renter_phone or row.customer.phone_number,
             "action_url": f"/api/admin/bookings/{row.id}/action/",
         } for row in rows]})
     if resource == "customers":

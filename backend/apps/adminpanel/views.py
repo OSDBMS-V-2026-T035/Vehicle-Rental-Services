@@ -142,6 +142,8 @@ def shopkeeper_action(request, profile_id):
         return JsonResponse({"ok": False, "message": "Choose approve, reject, revoke, edit, or delete."}, status=400)
     if action == "approve" and profile.user.is_permanently_banned:
         return JsonResponse({"ok": False, "message": "A permanently banned shopkeeper cannot be re-approved."}, status=409)
+    if action == "approve" and not profile.is_compliance_complete:
+        return JsonResponse({"ok": False, "message": "Review cannot be approved until all mandatory shopkeeper compliance details and documents are submitted."}, status=409)
     with transaction.atomic():
         profile.verification_status = status_by_action[action]
         profile.user.is_active = action != "revoke"
@@ -186,6 +188,7 @@ def vehicle_action(request, vehicle_id):
         return JsonResponse({"ok": False, "message": "Verify the shopkeeper before approving a vehicle."}, status=409)
     with transaction.atomic():
         vehicle.listing_status = Vehicle.ListingStatus.APPROVED if action == "approve" else Vehicle.ListingStatus.REJECTED
+        vehicle.is_available = action == "approve"
         vehicle.admin_note = str(_payload(request).get("note", "")).strip()[:255]
         vehicle.save(update_fields=["listing_status", "is_available", "admin_note", "updated_at"])
         AuditLog.objects.create(actor=request.user, action=f"vehicle_{action}", entity_type="vehicle", entity_id=vehicle.id, metadata={"registration_number": vehicle.registration_number})
