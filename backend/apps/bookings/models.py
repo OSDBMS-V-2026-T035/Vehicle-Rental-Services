@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.core.validators import MaxValueValidator
 
 from apps.accounts.models import User
 from apps.vehicles.models import Vehicle
@@ -42,3 +43,40 @@ class Booking(models.Model):
     def clean(self):
         if self.return_date < self.pickup_date:
             raise ValidationError("Return date must be on or after pickup date.")
+
+
+class BookingInspection(models.Model):
+    """Customer-authorized, one-time pickup/return inspection for a booking."""
+
+    class Stage(models.TextChoices):
+        PICKUP = "PICKUP", "Pickup"
+        RETURN = "RETURN", "Return"
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Awaiting shop inspection"
+        CONFIRMED = "CONFIRMED", "Inspection recorded"
+        EXPIRED = "EXPIRED", "Code expired"
+
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name="inspections")
+    stage = models.CharField(max_length=10, choices=Stage.choices)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    code_hash = models.CharField(max_length=128)
+    expires_at = models.DateTimeField(db_index=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    odometer_km = models.PositiveIntegerField(null=True, blank=True)
+    fuel_percent = models.PositiveSmallIntegerField(null=True, blank=True, validators=[MaxValueValidator(100)])
+    condition_checklist = models.JSONField(default=dict, blank=True)
+    notes = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="recorded_vehicle_inspections"
+    )
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["stage"]
+        constraints = [
+            models.UniqueConstraint(fields=["booking", "stage"], name="unique_booking_inspection_stage"),
+        ]
+        indexes = [models.Index(fields=["status", "expires_at"]) ]
