@@ -17,6 +17,7 @@ from apps.payments.models import PaymentTransaction
 from apps.adminpanel.models import AuditLog
 from apps.vehicles.models import Vehicle
 from .models import Booking
+from .handover import HANDOVER_CODE_TTL_MINUTES, issue_handover_code
 from .services import create_checkout_booking, create_locked_booking, expire_checkout_holds
 from apps.accounts.models import phone_validator
 from apps.verification.services import validate_aadhaar
@@ -192,6 +193,31 @@ def checkout_defaults(request):
             "phone": last_booking.renter_phone if last_booking else request.user.phone_number,
             "email": request.user.email,
         },
+    })
+
+
+@login_required
+@require_POST
+def request_handover_code(request, booking_id):
+    """Issue a one-time pickup/return code only to the authenticated renter."""
+    if request.user.role != User.Role.USER:
+        return JsonResponse({"ok": False, "message": "Customer access only."}, status=403)
+    stage = str(_payload(request).get("stage") or "").upper()
+    try:
+        issued = issue_handover_code(customer=request.user, booking_id=booking_id, stage=stage)
+    except LookupError as exc:
+        return JsonResponse({"ok": False, "message": str(exc)}, status=404)
+    except TimeoutError as exc:
+        return JsonResponse({"ok": False, "message": str(exc)}, status=429)
+    except ValueError as exc:
+        return JsonResponse({"ok": False, "message": str(exc)}, status=409)
+    return JsonResponse({
+        "ok": True,
+        "stage": stage,
+        "code": issued["code"],
+        "expires_at": issued["expires_at"].isoformat(),
+        "expires_in_seconds": HANDOVER_CODE_TTL_MINUTES * 60,
+        "message": "Share this one-time code with your shopkeeper in person. It expires in 10 minutes.",
     })
 
 
