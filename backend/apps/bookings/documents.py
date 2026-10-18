@@ -214,6 +214,8 @@ def _confirmation_bytes(booking):
     pdf.setAuthor("RideHub")
     x, right = 16 * mm, A4[0] - 16 * mm
     panel_width = right - x
+    frame_x, frame_right = 10 * mm, A4[0] - 10 * mm
+    header_width = frame_right - frame_x
 
     def plain(value, fallback="-"):
         return str(value or fallback).strip() or fallback
@@ -264,22 +266,22 @@ def _confirmation_bytes(booking):
     # Same broad navy masthead and light-blue detail band as the supplied ticket.
     header_y, header_h = A4[1] - 40 * mm, 31 * mm
     pdf.setFillColor(colors.HexColor("#073E82"))
-    pdf.rect(x, header_y, panel_width, header_h, fill=1, stroke=0)
+    pdf.rect(frame_x, header_y, header_width, header_h, fill=1, stroke=0)
     pdf.setFillColor(colors.white)
     pdf.setStrokeColor(colors.white)
-    _draw_landing_mark(pdf, x + 6 * mm, header_y + 10 * mm, 14 * mm)
+    _draw_landing_mark(pdf, frame_x + 6 * mm, header_y + 10 * mm, 14 * mm)
     pdf.setFont("Helvetica-Bold", 13)
-    pdf.drawString(x + 37 * mm, header_y + 21 * mm, "Ticket Information")
+    pdf.drawString(frame_x + 37 * mm, header_y + 21 * mm, "Ticket Information")
     pdf.setFont("Helvetica-Bold", 8.7)
-    pdf.drawString(x + 37 * mm, header_y + 14.5 * mm, f"{vehicle.display_name} at {shop.shop_name}")
+    pdf.drawString(frame_x + 37 * mm, header_y + 14.5 * mm, f"{vehicle.display_name} at {shop.shop_name}")
     pdf.setFont("Helvetica", 8.1)
-    pdf.drawString(x + 37 * mm, header_y + 9 * mm, f"Pickup on {_date(booking.pickup_date)}")
+    pdf.drawString(frame_x + 37 * mm, header_y + 9 * mm, f"Pickup on {_date(booking.pickup_date)}")
     pdf.setFont("Helvetica-BoldOblique", 13)
-    pdf.drawRightString(right - 8 * mm, header_y + 18 * mm, "RideHub")
+    pdf.drawRightString(frame_right - 8 * mm, header_y + 18 * mm, "RideHub")
     pdf.setStrokeColor(colors.HexColor("#4F80B8"))
-    pdf.line(x, header_y + 7 * mm, right, header_y + 7 * mm)
+    pdf.line(frame_x, header_y + 7 * mm, frame_right, header_y + 7 * mm)
     pdf.setFillColor(colors.white); pdf.setFont("Helvetica", 7.4)
-    pdf.drawCentredString(x + panel_width / 2, header_y + 3.2 * mm, f"Ticket Number: {reference}    |    Payment ID: {plain(payment.provider_payment_id)}")
+    pdf.drawCentredString(frame_x + header_width / 2, header_y + 3.2 * mm, f"Ticket Number: {reference}    |    Payment ID: {plain(payment.provider_payment_id)}")
 
     y = header_y - 7 * mm
     customer_name = booking.renter_full_name or customer.get_full_name() or customer.email
@@ -309,21 +311,21 @@ def _confirmation_bytes(booking):
     text(booking.renter_email or customer.email, x + 15 * mm, y - 10 * mm, "Helvetica", 7.4, MUTED)
     y -= 16 * mm
     _draw_landing_watermark(pdf, A4[0] / 2, A4[1] / 2)
-    pdf.setStrokeColor(colors.HexColor("#4F80B8")); pdf.setLineWidth(.8); pdf.rect(10 * mm, 10 * mm, A4[0] - 20 * mm, A4[1] - 20 * mm, fill=0, stroke=1)
+    pdf.setStrokeColor(colors.HexColor("#4F80B8")); pdf.setLineWidth(.8); pdf.rect(frame_x, 10 * mm, frame_right - frame_x, A4[1] - 20 * mm, fill=0, stroke=1)
     pdf.setStrokeColor(LINE); pdf.line(x, 17 * mm, right, 17 * mm)
     text("RideHub - secure vehicle rentals | Support: support@ridehub.in", x, 11 * mm, "Helvetica", 7, MUTED)
     pdf.setFillColor(MUTED); pdf.setFont("Helvetica", 7); pdf.drawRightString(right, 11 * mm, f"{reference} | Page 1")
     def page_shell(page_number, heading):
         pdf.showPage()
-        pdf.setStrokeColor(colors.HexColor("#4F80B8")); pdf.setLineWidth(.8); pdf.rect(10 * mm, 10 * mm, A4[0] - 20 * mm, A4[1] - 20 * mm, fill=0, stroke=1)
-        pdf.setFillColor(colors.HexColor("#073E82")); pdf.rect(x, header_y, panel_width, header_h, fill=1, stroke=0)
-        _draw_landing_mark(pdf, x + 8 * mm, header_y + 10 * mm, 13 * mm)
-        pdf.setFillColor(colors.white); pdf.setFont("Helvetica-Bold", 16); pdf.drawString(x + 27 * mm, header_y + 18 * mm, "RideHub")
-        pdf.setFont("Helvetica", 8); pdf.drawString(x + 27 * mm, header_y + 12 * mm, "MOVE FREELY. LIVE MORE.")
-        pdf.setFont("Helvetica-Bold", 12); pdf.drawRightString(right - 8 * mm, header_y + 18 * mm, "Ride Confirmation")
-        pdf.setFont("Helvetica", 8); pdf.drawRightString(right - 8 * mm, header_y + 12 * mm, reference)
-        pdf.setFillColor(colors.HexColor("#E2EAF8")); pdf.rect(x, header_y - 15 * mm, panel_width, 9 * mm, fill=1, stroke=0)
-        text(heading, x + 5 * mm, header_y - 11.5 * mm, "Helvetica-Bold", 10, INK)
+        pdf.setStrokeColor(colors.HexColor("#4F80B8")); pdf.setLineWidth(.8); pdf.rect(frame_x, 10 * mm, frame_right - frame_x, A4[1] - 20 * mm, fill=0, stroke=1)
+        pdf.setFillColor(colors.HexColor("#073E82")); pdf.rect(frame_x, header_y, header_width, header_h, fill=1, stroke=0)
+        _draw_landing_mark(pdf, frame_x + 8 * mm, header_y + 10 * mm, 13 * mm)
+        pdf.setFillColor(colors.white); pdf.setFont("Helvetica-Bold", 16); pdf.drawString(frame_x + 27 * mm, header_y + 18 * mm, "RideHub")
+        pdf.setFont("Helvetica", 8); pdf.drawString(frame_x + 27 * mm, header_y + 12 * mm, "MOVE FREELY. LIVE MORE.")
+        pdf.setFont("Helvetica-Bold", 12); pdf.drawRightString(frame_right - 8 * mm, header_y + 18 * mm, "Ride Confirmation")
+        pdf.setFont("Helvetica", 8); pdf.drawRightString(frame_right - 8 * mm, header_y + 12 * mm, reference)
+        pdf.setFillColor(colors.HexColor("#E2EAF8")); pdf.rect(frame_x, header_y - 15 * mm, header_width, 9 * mm, fill=1, stroke=0)
+        text(heading, frame_x + 5 * mm, header_y - 11.5 * mm, "Helvetica-Bold", 10, INK)
         return header_y - 29 * mm
 
     def page_footer(page_number):
