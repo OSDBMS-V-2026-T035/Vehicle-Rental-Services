@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.utils import timezone
 from decimal import Decimal
 
@@ -10,6 +10,12 @@ from apps.verification.models import BookingVerification
 
 
 PAYMENT_HOLD_MINUTES = 10
+MYSQL_RETRYABLE_ERROR_CODES = {1205, 1213}
+
+
+def _is_retryable_lock_error(error):
+    """Return True only for MySQL's transient lock timeout/deadlock errors."""
+    return bool(error.args and error.args[0] in MYSQL_RETRYABLE_ERROR_CODES)
 
 
 def active_reservation_statuses():
@@ -51,18 +57,23 @@ def expire_checkout_holds(now=None):
     return len(expired)
 
 
-def active_reservation_filter(now=None):
-    """Q expression for confirmed rides and still-live pending checkout holds."""
+def active_reservation_filter(now=None, relation_prefix=""):
+    """Q expression for confirmed rides and still-live pending checkout holds.
+
+    ``relation_prefix`` lets the same condition be used inside an aggregate on
+    another model, e.g. ``bookings__`` when counting a vehicle's bookings.
+    """
     from django.db.models import Q
 
     now = now or timezone.now()
+    prefix = str(relation_prefix or "")
+    status_field = f"{prefix}status"
+    expiry_field = f"{prefix}payment_expires_at"
     # Null is retained for legacy pending records created before timed holds.
-    return Q(status__in=active_reservation_statuses()) | Q(
-        status=Booking.Status.PENDING,
-        payment_expires_at__isnull=True,
+    return Q(**{f"{status_field}__in": active_reservation_statuses()}) | Q(
+        **{status_field: Booking.Status.PENDING, f"{expiry_field}__isnull": True},
     ) | Q(
-        status=Booking.Status.PENDING,
-        payment_expires_at__gt=now,
+        **{status_field: Booking.Status.PENDING, f"{expiry_field}__gt": now},
     )
 
 
@@ -100,7 +111,7 @@ def create_locked_booking(*, customer, vehicle_id, pickup_date, return_date):
     return booking
 
 
-def create_checkout_booking(
+def _create_checkout_booking(
     *, customer, vehicle_id, pickup_date, return_date, renter, aadhaar_hash, aadhaar_last4
 ):
     """Atomically reserve a vehicle and store a privacy-safe checkout snapshot."""
@@ -148,3 +159,19 @@ def create_checkout_booking(
             verified_at=timezone.now(),
         )
     return booking
+
+
+def create_checkout_booking(**kwargs):
+    """Reserve a checkout unit, retrying a short-lived MySQL lock conflict once.
+
+    Availability search and checkout can arrive together.  MySQL may pick one
+    transaction as a deadlock victim even though no database service is down.
+    Retrying that known transient error keeps the customer flow reliable while
+    preserving the row-lock inventory guarantee in ``_create_checkout_booking``.
+    """
+    for attempt in range(2):
+        try:
+            return _create_checkout_booking(**kwargs)
+        except OperationalError as exc:
+            if attempt or not _is_retryable_lock_error(exc):
+                raise

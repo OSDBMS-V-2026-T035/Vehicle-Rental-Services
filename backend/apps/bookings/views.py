@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import DatabaseError, OperationalError, transaction
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -155,6 +155,13 @@ def create_checkout_booking_view(request):
         )
     except (TypeError, ValueError, ValidationError) as exc:
         return JsonResponse({"ok": False, "message": str(exc)}, status=409)
+    except OperationalError as exc:
+        # Only lock conflicts are retried in the service. Other operational
+        # failures are reported honestly instead of being mistaken for bad
+        # renter details.
+        return JsonResponse({"ok": False, "message": "The reservation system is busy. Please try again in a few seconds."}, status=503)
+    except DatabaseError:
+        return JsonResponse({"ok": False, "message": "We could not save this reservation. Please retry; if it continues, contact RideHub support."}, status=503)
     payment, _ = PaymentTransaction.objects.get_or_create(
         booking=booking,
         defaults={"customer": request.user, "amount": booking.total_amount},

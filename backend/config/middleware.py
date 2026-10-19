@@ -1,4 +1,4 @@
-from django.db import InterfaceError, OperationalError
+from django.db import DatabaseError, InterfaceError, OperationalError
 from django.http import JsonResponse
 
 
@@ -11,7 +11,11 @@ class ApiDatabaseErrorMiddleware:
     def __call__(self, request):
         try:
             return self.get_response(request)
-        except (InterfaceError, OperationalError) as exception:
+        # Django raises NotSupportedError (a DatabaseError) before issuing the
+        # first query when the connected MySQL server is older than the minimum
+        # version Django supports.  Treat it like any other unavailable
+        # database so API clients get JSON rather than a HTML 500 response.
+        except (DatabaseError, InterfaceError, OperationalError) as exception:
             response = self._database_error_response(request, exception)
             if response is not None:
                 return response
@@ -22,13 +26,14 @@ class ApiDatabaseErrorMiddleware:
 
     @staticmethod
     def _database_error_response(request, exception=None):
-        if request.path.startswith("/api/") and isinstance(exception, (InterfaceError, OperationalError)):
+        if request.path.startswith("/api/") and isinstance(exception, (DatabaseError, InterfaceError, OperationalError)):
             return JsonResponse(
                 {
                     "ok": False,
                     "message": (
-                        "RideHub database is unavailable. Start MySQL 8.4 and "
-                        "verify MYSQL_DATABASE, MYSQL_USER, and MYSQL_PASSWORD in .env."
+                        "RideHub database is unavailable or unsupported. Start MySQL 8.4 "
+                        "and verify MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE, MYSQL_USER, "
+                        "and MYSQL_PASSWORD in .env."
                     ),
                 },
                 status=503,

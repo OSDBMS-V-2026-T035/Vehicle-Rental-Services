@@ -282,7 +282,6 @@ submitAuth = async function(url, body) {
     if (!captcha.captcha_id || captcha.captcha_answer.length !== 5) { setError('captcha-answer', 'Enter the 5-character security code.'); return; }
     await originalSubmitAuth(url, {...body, next: requestedNext, ...captcha});
     placeCaptcha();
-refreshCaptcha();
 };
 
 const originalResetSubmit = document.querySelector('#reset-form').onsubmit;

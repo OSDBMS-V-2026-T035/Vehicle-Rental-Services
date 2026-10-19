@@ -216,6 +216,26 @@ FLUSH PRIVILEGES;
         }
     }
 
+    # A listening MySQL server is not sufficient: Django 5 requires MySQL
+    # 8.0.11 or later.  Without this guard a legacy server (for example 5.6)
+    # reaches Django, where every login and vehicle request fails at the first
+    # database query with a confusing HTTP 500 response.
+    $versionDefaults = [IO.Path]::GetTempFileName()
+    try {
+        @(
+            "[client]",
+            "host=127.0.0.1",
+            "user=vehicle_rental_user",
+            "password=$appPassword"
+        ) | Set-Content -Path $versionDefaults -Encoding ascii
+        $serverVersion = (& $mysqlExe "--defaults-extra-file=$versionDefaults" --batch --skip-column-names -e "SELECT VERSION();" 2>$null | Select-Object -First 1).Trim()
+        if ($serverVersion -notmatch "^8\\.") {
+            throw "RideHub requires MySQL 8.0.11 or later (8.4 recommended), but 127.0.0.1:3306 is running MySQL $serverVersion. Stop or reconfigure the older MySQL service, start MySQL 8.4, then run RideHub again."
+        }
+    } finally {
+        if (Test-Path $versionDefaults) { Remove-Item -LiteralPath $versionDefaults -Force }
+    }
+
     Write-Step "Applying Django database migrations"
     & $venvPython backend/manage.py check
     & $venvPython backend/manage.py migrate --noinput

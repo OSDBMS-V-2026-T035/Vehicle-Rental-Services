@@ -384,7 +384,7 @@ def search_vehicles(request):
                 filter=Q(
                     bookings__pickup_date__lte=return_date,
                     bookings__return_date__gte=pickup,
-                ) & active_reservation_filter(),
+                ) & active_reservation_filter(relation_prefix="bookings__"),
             )
         )
     matches = []

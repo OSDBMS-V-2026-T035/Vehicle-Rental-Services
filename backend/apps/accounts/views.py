@@ -295,7 +295,14 @@ def password_reset_otp_view(request):
             return _error(str(exc))
     else:
         provider, code = "console", None
-    return JsonResponse({"ok": True, "message": "If an account exists, a reset code has been sent. A new security code is now displayed below—enter it before resetting your password.", "provider": provider})
+    return JsonResponse({
+        "ok": True,
+        "message": (
+            "If an account exists, a password-reset code has been sent to its verified email address. "
+            "Check Inbox and Spam; the code expires in 10 minutes."
+        ),
+        "provider": provider,
+    })
 
 
 @require_POST
@@ -335,8 +342,13 @@ def login_view(request):
     if captcha_error: return captcha_error
 
     user = authenticate(request, username=identifier, password=password)
-    if not user or user.role != requested_role:
+    if not user:
         return _error("The role, login details, or password is incorrect.", status=401)
+    if user.role != requested_role:
+        return _error(
+            f"This account uses {user.get_role_display()} access. Select the matching role before signing in.",
+            status=403,
+        )
     if not user.is_email_verified:
         return _error("Verify your email before logging in.", status=403)
     if user.role == User.Role.SHOPKEEPER:

@@ -32,6 +32,10 @@ class Booking(models.Model):
     handover_at = models.DateTimeField(null=True, blank=True)
     received_back_at = models.DateTimeField(null=True, blank=True)
     shopkeeper_cancellation_reason = models.TextField(blank=True)
+    # Kept for compatibility with earlier RideHub databases that recorded a
+    # lifecycle comment for every booking.  A default is essential because
+    # those databases still require this column during inserts.
+    lifecycle_note = models.CharField(max_length=255, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

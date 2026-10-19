@@ -2,13 +2,16 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
+from django.db.models import Count, Q
+from django.db import OperationalError
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
+from unittest.mock import patch
 
 from .documents import _document_bytes
 from .models import Booking
 from .handover import CHECKLIST_FIELDS, validate_inspection_payload
-from .services import active_reservation_statuses
+from .services import active_reservation_statuses, create_checkout_booking
 
 
 class BookingDocumentTests(SimpleTestCase):
@@ -55,6 +58,22 @@ class ActiveReservationStatusTests(SimpleTestCase):
     def test_completed_and_cancelled_bookings_do_not_consume_inventory(self):
         self.assertNotIn(Booking.Status.COMPLETED, active_reservation_statuses())
         self.assertNotIn(Booking.Status.CANCELLED, active_reservation_statuses())
+
+
+class CheckoutRetryTests(SimpleTestCase):
+    def test_retries_a_mysql_deadlock_once(self):
+        expected = object()
+        with patch("apps.bookings.services._create_checkout_booking", side_effect=[OperationalError(1213, "deadlock"), expected]) as create:
+            self.assertIs(create_checkout_booking(example="value"), expected)
+
+        self.assertEqual(create.call_count, 2)
+
+    def test_does_not_retry_a_non_lock_database_error(self):
+        with patch("apps.bookings.services._create_checkout_booking", side_effect=OperationalError(2003, "connection failed")) as create:
+            with self.assertRaises(OperationalError):
+                create_checkout_booking(example="value")
+
+        self.assertEqual(create.call_count, 1)
 
 
 class ActiveReservationQueryTests(TestCase):
@@ -107,6 +126,28 @@ class ActiveReservationQueryTests(TestCase):
         reserved = Booking.objects.filter(vehicle=self.vehicle).filter(active_reservation_filter())
 
         self.assertEqual(reserved.count(), 3)
+
+    def test_relation_prefix_supports_vehicle_availability_aggregate(self):
+        from .services import active_reservation_filter
+        from apps.vehicles.models import Vehicle
+
+        pickup = date.today() + timedelta(days=2)
+        Booking.objects.create(
+            customer=self.customer, vehicle=self.vehicle, pickup_date=pickup,
+            return_date=pickup + timedelta(days=1), total_amount="1000.00",
+            status=Booking.Status.CONFIRMED,
+        )
+
+        vehicle = Vehicle.objects.annotate(
+            reserved_units=Count(
+                "bookings",
+                filter=Q(bookings__pickup_date__lte=pickup + timedelta(days=1))
+                & Q(bookings__return_date__gte=pickup)
+                & active_reservation_filter(relation_prefix="bookings__"),
+            )
+        ).get(pk=self.vehicle.pk)
+
+        self.assertEqual(vehicle.reserved_units, 1)
 
 
 class HandoverInspectionValidationTests(SimpleTestCase):
