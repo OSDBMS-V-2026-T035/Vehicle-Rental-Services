@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from django.db.models import Count, Q
 from django.db import OperationalError
+from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from unittest.mock import patch
@@ -74,6 +75,11 @@ class CheckoutRetryTests(SimpleTestCase):
                 create_checkout_booking(example="value")
 
         self.assertEqual(create.call_count, 1)
+
+
+class RuntimeVerificationTests(TestCase):
+    def test_runtime_verification_accepts_the_current_migrated_schema(self):
+        call_command("verify_runtime")
 
 
 class ActiveReservationQueryTests(TestCase):

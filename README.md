@@ -80,6 +80,13 @@ Open `http://localhost:8000/`. The Compose stack runs Django/Gunicorn and MySQL
 Docker is the packaging/runtime layer; it does not itself provide free public
 hosting. See `docs/DEPLOYMENT.md` for the free-hosting trade-offs.
 
+At every Docker startup, RideHub applies migrations and then checks MySQL
+compatibility, the required booking schema, pending migrations, and (when it is
+configured) the administrator login. The web container is marked healthy only
+after its authentication page responds. If one of these checks fails, fix the
+startup error before using the website rather than encountering a broken login
+or booking flow in the browser.
+
 ## Initial setup
 
 ## One-command mentor demo
