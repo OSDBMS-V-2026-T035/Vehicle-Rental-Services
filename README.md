@@ -87,6 +87,24 @@ after its authentication page responds. If one of these checks fails, fix the
 startup error before using the website rather than encountering a broken login
 or booking flow in the browser.
 
+### Recommended Windows start command
+
+Start Docker Desktop first, then double-click `RUN_RIDEHUB.bat` in the project
+folder. It starts the complete MySQL 8.4 + Django web/API stack in the
+background, checks its service status, and opens RideHub in the browser. This
+is the recommended launcher because it uses the project-pinned MySQL version.
+
+Equivalent terminal commands:
+
+```powershell
+docker compose up --build -d --wait
+docker compose ps
+```
+
+Open `http://127.0.0.1:8000/`. To inspect a failed startup, run
+`docker compose logs --tail 100`; to stop the stack while keeping database data,
+run `docker compose stop`.
+
 ## Initial setup
 
 ## One-command mentor demo
