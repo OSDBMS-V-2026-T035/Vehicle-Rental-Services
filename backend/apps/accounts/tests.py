@@ -2,6 +2,7 @@ from datetime import timedelta
 import json
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
@@ -78,6 +79,28 @@ class LoginViewTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertIn("Administrator access", response.json()["message"])
+
+
+class BootstrapAdminTests(TestCase):
+    def test_redeploy_bootstrap_preserves_an_existing_admin_password(self):
+        admin = User.objects.create_user(
+            email="admin@example.com",
+            phone_number="9876543211",
+            password="SavedPassword1!",
+            role=User.Role.ADMIN,
+            is_email_verified=True,
+        )
+
+        with patch.dict("os.environ", {
+            "RIDEHUB_ADMIN_EMAIL": admin.email,
+            "RIDEHUB_ADMIN_PASSWORD": "DeploymentOnlyPassword1!",
+            "RIDEHUB_ADMIN_PHONE": admin.phone_number,
+        }, clear=False):
+            call_command("bootstrap_admin")
+
+        admin.refresh_from_db()
+        self.assertTrue(admin.check_password("SavedPassword1!"))
+        self.assertFalse(admin.check_password("DeploymentOnlyPassword1!"))
 
     def test_reset_request_never_claims_the_otp_is_shown_in_the_page(self):
         User.objects.create_user(

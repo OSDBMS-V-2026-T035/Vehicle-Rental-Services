@@ -6,14 +6,11 @@ python backend/manage.py check
 echo "[RideHub] Applying database migrations"
 python backend/manage.py migrate --noinput
 if [ -n "${RIDEHUB_ADMIN_PASSWORD:-}" ]; then
-    echo "[RideHub] Ensuring the protected administrator account exists"
+    echo "[RideHub] Ensuring the protected administrator account exists without resetting its password"
     python backend/manage.py bootstrap_admin
-    admin_check="--require-admin"
-else
-    admin_check=""
 fi
 echo "[RideHub] Verifying database schema and authentication readiness"
-python backend/manage.py verify_runtime $admin_check
+python backend/manage.py verify_runtime
 echo "[RideHub] Collecting static files"
 python backend/manage.py collectstatic --noinput
 

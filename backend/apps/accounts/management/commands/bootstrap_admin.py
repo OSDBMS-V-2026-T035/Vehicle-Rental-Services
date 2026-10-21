@@ -7,7 +7,7 @@ from apps.accounts.models import User
 
 
 class Command(BaseCommand):
-    help = "Create or update the protected RideHub administrator account from environment values."
+    help = "Create the protected RideHub administrator account without resetting an existing password."
 
     def add_arguments(self, parser):
         parser.add_argument("--email", default=None, help="Admin login email; defaults to RIDEHUB_ADMIN_EMAIL.")
@@ -33,6 +33,12 @@ class Command(BaseCommand):
                         "last_name": "Admin",
                     },
                 )
+                # Environment variables are deployment configuration, not a
+                # password-reset mechanism.  Preserve an existing admin's
+                # password so deploys cannot silently invalidate its login.
+                if created:
+                    user.set_password(password)
+
                 user.phone_number = phone
                 user.first_name = "RideHub"
                 user.last_name = "Admin"
@@ -41,13 +47,15 @@ class Command(BaseCommand):
                 user.is_staff = True
                 user.is_superuser = True
                 user.is_email_verified = True
-                user.set_password(password)
-                user.save(update_fields=[
+                update_fields = [
                     "phone_number", "first_name", "last_name", "role", "is_active",
-                    "is_staff", "is_superuser", "is_email_verified", "password", "updated_at",
-                ])
+                    "is_staff", "is_superuser", "is_email_verified", "updated_at",
+                ]
+                if created:
+                    update_fields.append("password")
+                user.save(update_fields=update_fields)
         except OperationalError as exc:
             raise CommandError("MySQL is unavailable. Start MySQL and run `python backend/manage.py bootstrap_admin` again.") from exc
 
-        state = "created" if created else "updated"
+        state = "created" if created else "preserved"
         self.stdout.write(self.style.SUCCESS(f"RideHub admin account {state}: {email}"))
