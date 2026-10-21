@@ -31,8 +31,11 @@ _P = (
     (7, 0, 4, 6, 9, 1, 3, 2, 5, 8),
 )
 
-_PAN = re.compile(r"^[A-Z]{3}[ABCFGHLJPT][0-9]{4}[A-Z]$")
-_GSTIN = re.compile(r"^(?:0[1-9]|[12][0-9]|3[0-8]|97)[A-Z]{3}[ABCFGHLJPT][0-9]{4}[A-Z][0-9A-Z]Z[A-Z0-9]$")
+# A PAN has five letters (the fourth is the holder-status code), followed by
+# four digits and one final letter. Keep the same complete PAN structure in a
+# GSTIN after its two-character state code.
+_PAN = re.compile(r"^[A-Z]{3}[ABCFGHLJPT][A-Z][0-9]{4}[A-Z]$")
+_GSTIN = re.compile(r"^(?:0[1-9]|[12][0-9]|3[0-8]|97)[A-Z]{3}[ABCFGHLJPT][A-Z][0-9]{4}[A-Z][0-9A-Z]Z[A-Z0-9]$")
 
 
 def validate_pan(value):

@@ -5,13 +5,14 @@ from .services import validate_aadhaar, validate_aadhaar_last4, validate_gstin, 
 
 class IndianIdentityFormatTests(SimpleTestCase):
     def test_validates_pan_format_and_category_code(self):
-        self.assertTrue(validate_pan("abcp1234f"))
-        self.assertFalse(validate_pan("ABCDE1234F"))
-        self.assertFalse(validate_pan("ABCP12345F"))
+        self.assertTrue(validate_pan("abcpd1234f"))
+        self.assertTrue(validate_pan("JUAPD7426L"))
+        self.assertFalse(validate_pan("ABCP1234F"))
+        self.assertFalse(validate_pan("ABCPD12345F"))
 
     def test_validates_gstin_format_and_exact_length(self):
-        self.assertTrue(validate_gstin("07ABCP1234F1Z5"))
-        self.assertFalse(validate_gstin("07ABCP1234F1Z"))
+        self.assertTrue(validate_gstin("07ABCPD1234F1Z5"))
+        self.assertFalse(validate_gstin("07ABCPD1234F1Z"))
 
     def test_aadhaar_last_four_requires_exact_ascii_digits(self):
         self.assertTrue(validate_aadhaar_last4("1234"))
