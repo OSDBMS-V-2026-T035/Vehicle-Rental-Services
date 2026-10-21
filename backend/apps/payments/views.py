@@ -1,6 +1,7 @@
 """Server-side Razorpay order creation and payment verification."""
 
 import json
+import logging
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
@@ -17,6 +18,9 @@ from apps.bookings.services import expire_checkout_holds
 from apps.notifications.services import notify_paid_booking_with_documents
 from .gateways import get_payment_gateway
 from .models import PaymentTransaction
+
+
+logger = logging.getLogger(__name__)
 
 
 def _payload(request):
@@ -39,6 +43,17 @@ def _payment_gateway(provider=None):
     if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
         return None
     return get_payment_gateway(provider)
+
+
+def _razorpay_configuration_error(require_webhook=False):
+    """Return a customer-safe configuration error without exposing secrets."""
+    if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
+        return "Razorpay test keys are not configured on the server yet."
+    if not settings.RAZORPAY_KEY_ID.startswith(("rzp_test_", "rzp_live_")):
+        return "The Razorpay Key ID on the server is invalid. Use a Test Mode or Live Mode Key ID."
+    if require_webhook and not settings.RAZORPAY_WEBHOOK_SECRET:
+        return "Razorpay webhook signing secret is not configured on the server yet."
+    return ""
 
 
 def _amount_in_paise(amount):
@@ -107,8 +122,24 @@ def _payment_window_message(payment):
 
 
 @_customer_only
+def razorpay_checkout_status(request):
+    """Preflight configuration before opening the third-party checkout UI."""
+    error = _razorpay_configuration_error(require_webhook=True)
+    if error:
+        return JsonResponse({"ok": False, "message": error}, status=503)
+    return JsonResponse({
+        "ok": True,
+        "test_mode": settings.RAZORPAY_KEY_ID.startswith("rzp_test_"),
+        "message": "Razorpay checkout and webhook recovery are configured.",
+    })
+
+
+@_customer_only
 @require_POST
 def create_razorpay_order(request, payment_id):
+    configuration_error = _razorpay_configuration_error()
+    if configuration_error:
+        return JsonResponse({"ok": False, "message": configuration_error}, status=503)
     gateway = _payment_gateway()
     if gateway is None:
         return JsonResponse({"ok": False, "message": "Razorpay is not configured yet. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to .env, then restart the service."}, status=503)
@@ -138,6 +169,7 @@ def create_razorpay_order(request, payment_id):
     except PaymentTransaction.DoesNotExist:
         return JsonResponse({"ok": False, "message": "Payment record not found."}, status=404)
     except Exception:
+        logger.exception("Unable to create Razorpay order for payment %s", payment_id)
         return JsonResponse({"ok": False, "message": "Unable to start secure checkout. Please try again shortly."}, status=502)
     return JsonResponse(_order_response(payment, order))
 

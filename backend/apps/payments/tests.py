@@ -3,16 +3,30 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
-from .views import _amount_in_paise, _capture_and_record, _latest_provider_payment, _payment_window_message, _provider_payment_matches
+from .views import _amount_in_paise, _capture_and_record, _latest_provider_payment, _payment_window_message, _provider_payment_matches, _razorpay_configuration_error
 
 
 class RazorpayAmountTests(SimpleTestCase):
     def test_amount_is_converted_to_paise_with_gateway_safe_rounding(self):
         self.assertEqual(_amount_in_paise(Decimal("2499.00")), 249900)
         self.assertEqual(_amount_in_paise(Decimal("1.005")), 101)
+
+
+class RazorpayConfigurationTests(SimpleTestCase):
+    @override_settings(RAZORPAY_KEY_ID="rzp_test_key", RAZORPAY_KEY_SECRET="secret", RAZORPAY_WEBHOOK_SECRET="webhook-secret")
+    def test_accepts_complete_test_mode_configuration(self):
+        self.assertEqual(_razorpay_configuration_error(require_webhook=True), "")
+
+    @override_settings(RAZORPAY_KEY_ID="rzp_test_key", RAZORPAY_KEY_SECRET="secret", RAZORPAY_WEBHOOK_SECRET="")
+    def test_requires_webhook_secret_for_checkout_preflight(self):
+        self.assertIn("webhook", _razorpay_configuration_error(require_webhook=True).lower())
+
+    @override_settings(RAZORPAY_KEY_ID="not-a-razorpay-key", RAZORPAY_KEY_SECRET="secret")
+    def test_rejects_malformed_key_id(self):
+        self.assertIn("invalid", _razorpay_configuration_error().lower())
 
 
 class RazorpayCaptureTests(SimpleTestCase):

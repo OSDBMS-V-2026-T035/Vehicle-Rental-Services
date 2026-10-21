@@ -21,6 +21,20 @@
     if (!response.ok || data.ok === false) throw new Error(data.message || 'Something went wrong.');
     return data;
   };
+  const razorpayCheckoutUrl = 'https://checkout.razorpay.com/v1/checkout.js';
+  const loadRazorpayCheckout = () => {
+    if (typeof window.Razorpay === 'function') return Promise.resolve();
+    // Retry the provider script once. This avoids a stuck/blank checkout when
+    // its first CDN request was interrupted while the portal was loading.
+    document.querySelector('script[data-razorpay-checkout]')?.remove();
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = razorpayCheckoutUrl; script.async = true; script.dataset.razorpayCheckout = 'retry';
+      script.onload = () => typeof window.Razorpay === 'function' ? resolve() : reject(new Error('Razorpay Checkout did not initialise.'));
+      script.onerror = () => reject(new Error('Razorpay Checkout could not be loaded. Check your internet connection and try again.'));
+      document.head.appendChild(script);
+    });
+  };
   const dateParams = () => ({ pickup_date: state.pickup, return_date: state.returnDate });
   const queryString = values => new URLSearchParams(Object.entries(values).filter(([, value]) => value !== undefined && value !== null && value !== '')).toString();
 
@@ -205,7 +219,8 @@
 
   async function startPayment(paymentId, modal, bookingId, prefetchedOrder = null) {
     const payButton = modal.querySelector('#pay-reservation');
-    if (typeof window.Razorpay !== 'function') { showToast('Secure checkout did not load. Check your connection and try again.'); return; }
+    try { await loadRazorpayCheckout(); }
+    catch (error) { showToast(error.message); payButton.disabled = false; return; }
     payButton.disabled = true;
     try {
       const order = prefetchedOrder || await request(`/api/payments/razorpay/order/${paymentId}/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
@@ -259,8 +274,9 @@
       pay.addEventListener('click', async () => {
         pay.disabled = true;
         try {
+          const checkoutStatus = await request('/api/payments/razorpay/status/');
           const order = await request(`/api/payments/razorpay/order/${data.payment_id}/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-          if (order.test_mode) modal.querySelector('#payment-test-note').textContent = 'Test mode: use Razorpay test payment details or UPI ID success@razorpay. No real money is charged.';
+          if (checkoutStatus.test_mode && order.test_mode) modal.querySelector('#payment-test-note').textContent = 'Test mode: use Razorpay test payment details or UPI ID success@razorpay. No real money is charged.';
           await startPayment(data.payment_id, modal, data.booking_id, order);
         } catch (error) { showToast(error.message); if (Date.now() < deadline.getTime()) pay.disabled = false; }
       });
