@@ -225,6 +225,30 @@
     try {
       const order = prefetchedOrder || await request(`/api/payments/razorpay/order/${paymentId}/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       let paymentCompletionStarted = false;
+      let reconciliationInFlight = false;
+      let reconciliationTimer = null;
+      const stopReconciliation = () => {
+        if (reconciliationTimer) window.clearInterval(reconciliationTimer);
+        reconciliationTimer = null;
+      };
+      // Some bank/UPI flows return through a secondary browser window. If that
+      // window prevents Razorpay's JavaScript handler from reaching the opener,
+      // ask our server about the order instead of leaving the customer stranded.
+      const recoverCompletedPayment = async () => {
+        if (paymentCompletionStarted || reconciliationInFlight) return false;
+        reconciliationInFlight = true;
+        try {
+          const confirmed = await reconcilePayment(paymentId, bookingId, modal);
+          if (confirmed) {
+            paymentCompletionStarted = true;
+            stopReconciliation();
+            return true;
+          }
+        } finally {
+          reconciliationInFlight = false;
+        }
+        return false;
+      };
       const checkout = new window.Razorpay({
         key: order.key_id, amount: order.amount, currency: order.currency, order_id: order.order_id,
         name: 'RideHub', description: order.description,
@@ -239,17 +263,22 @@
         retry: { enabled: true },
         // Razorpay closes its popup before invoking the success handler. Do not
         // cancel a reservation once that verified-payment flow has started.
-        modal: { backdropclose: false, escape: false, confirm_close: true, ondismiss: async () => { if (!paymentCompletionStarted) { const confirmed = await reconcilePayment(paymentId, bookingId, modal); if (!confirmed) { payButton.disabled = false; showToast('Payment window closed. Your reservation is still active; you can safely retry payment.'); } } } },
+        modal: { backdropclose: false, escape: false, confirm_close: true, ondismiss: async () => { stopReconciliation(); if (!paymentCompletionStarted) { const confirmed = await recoverCompletedPayment(); if (!confirmed) { payButton.disabled = false; showToast('Payment window closed. Your reservation is still active; you can safely retry payment.'); } } } },
         handler: async response => {
           paymentCompletionStarted = true;
+          stopReconciliation();
           try {
             const result = await request('/api/payments/razorpay/verify/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...response, payment_id: order.payment_id }) });
             await showPaymentSuccess(modal, bookingId);
           } catch (error) { paymentCompletionStarted = false; showToast(error.message); payButton.disabled = false; }
         },
       });
-      checkout.on('payment.failed', async failure => { const confirmed = await reconcilePayment(paymentId, bookingId, modal); if (!confirmed) { payButton.disabled = false; showToast(failure?.error?.description || 'Payment was not completed. You can safely retry payment.'); } });
+      checkout.on('payment.failed', async failure => { const confirmed = await recoverCompletedPayment(); if (!confirmed) { payButton.disabled = false; showToast(failure?.error?.description || 'Payment was not completed. You can safely retry payment.'); } });
       checkout.open();
+      // Poll briefly as a recovery path only. The normal handler above remains
+      // the primary fast path, while this catches a lost redirect/callback.
+      reconciliationTimer = window.setInterval(recoverCompletedPayment, 5000);
+      window.setTimeout(stopReconciliation, 120000);
     } catch (error) { showToast(error.message); payButton.disabled = false; }
   }
 
