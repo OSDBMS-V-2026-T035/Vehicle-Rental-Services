@@ -100,7 +100,16 @@ def _vehicle_payload(vehicle, distance=None, reserved_units=None):
         "is_available": vehicle.is_available,
         "shop": profile.shop_name,
         "address": profile.shop_address,
-        "image_url": vehicle.image.url if vehicle.image else default_images.get(vehicle.vehicle_type, "/static/images/car.jpg"),
+        # New listings keep the mandatory front photo as the main preview.  Do
+        # not save the same uploaded file twice: temporary uploads on Render
+        # are moved after the first save and a second FileField then fails.
+        "image_url": (
+            vehicle.image.url
+            if vehicle.image
+            else getattr(vehicle, "vehicle_photo_front", None).url
+            if getattr(vehicle, "vehicle_photo_front", None)
+            else default_images.get(vehicle.vehicle_type, "/static/images/car.jpg")
+        ),
     }
     if profile.latitude is not None and profile.longitude is not None:
         result["shop_latitude"] = float(profile.latitude)
@@ -177,7 +186,6 @@ def create_vehicle(request):
         insurance_document = request.FILES.get("insurance_document")
         _validate_document(rc_document, "RC document")
         _validate_document(insurance_document, "insurance document")
-        uploaded_image = photos["vehicle_photo_front"]
         registration_number = normalize_registration(request.POST.get("registration_number"))
         rc_number = normalize_registration(request.POST.get("rc_number"), "RC registration number")
         if rc_number != registration_number:
@@ -201,7 +209,6 @@ def create_vehicle(request):
             quantity=int(request.POST.get("quantity", "1")),
             available_quantity=int(request.POST.get("quantity", "1")),
             description=request.POST.get("description", "").strip(),
-            image=uploaded_image,
             rc_number=rc_number,
             chassis_number=chassis_number,
             rc_document=rc_document,

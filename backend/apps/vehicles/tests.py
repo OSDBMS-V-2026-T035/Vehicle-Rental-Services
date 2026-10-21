@@ -2,12 +2,14 @@ from types import SimpleNamespace
 
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 from django.urls import resolve
 
 from .views import _search_filters, _validate_vehicle_image, _vehicle_payload
 from .validators import normalize_chassis_number, normalize_policy_number, normalize_registration
 from .matching import rank_vehicle_matches
+from apps.accounts.models import ShopkeeperProfile, User
+from .models import Vehicle
 
 
 class VehicleImageValidationTests(SimpleTestCase):
@@ -21,6 +23,71 @@ class VehicleImageValidationTests(SimpleTestCase):
 
         with self.assertRaisesMessage(ValidationError, "Vehicle photo must be an image file."):
             _validate_vehicle_image(upload)
+
+
+class VehicleCreationApiTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="shop@example.com",
+            phone_number="9876543210",
+            password="StrongPassword1!",
+            role=User.Role.SHOPKEEPER,
+            is_email_verified=True,
+        )
+        image = SimpleUploadedFile("proof.jpg", b"image-data", content_type="image/jpeg")
+        self.profile = ShopkeeperProfile.objects.create(
+            user=self.user,
+            shop_name="Example Rentals",
+            shop_address="123 Example Road, Dehradun",
+            shop_description="A reliable rental business with well maintained vehicles.",
+            legal_business_name="Example Rentals",
+            proprietor_name="Example Owner",
+            business_type="Sole proprietorship",
+            pan_number="ABCPD1234F",
+            aadhaar_last4="1234",
+            shop_photo=image,
+            address_proof=SimpleUploadedFile("address.jpg", b"image-data", content_type="image/jpeg"),
+            pan_document=SimpleUploadedFile("pan.jpg", b"image-data", content_type="image/jpeg"),
+            aadhaar_document=SimpleUploadedFile("aadhaar.jpg", b"image-data", content_type="image/jpeg"),
+            verification_status=ShopkeeperProfile.VerificationStatus.VERIFIED,
+        )
+        self.client.force_login(self.user)
+
+    def test_verified_shopkeeper_can_submit_a_complete_vehicle(self):
+        def image(name):
+            return SimpleUploadedFile(name, b"image-data", content_type="image/jpeg")
+
+        response = self.client.post("/api/shopkeeper/vehicles/create/", {
+            "vehicle_type": "car",
+            "brand": "Maruti",
+            "model_name": "Swift",
+            "registration_number": "UK07AB1234",
+            "rc_number": "UK07AB1234",
+            "chassis_number": "MA3EJKD1S00A12345",
+            "manufacturing_year": "2024",
+            "fuel_type": "petrol",
+            "fuel_capacity": "37",
+            "daily_rate": "1500",
+            "seating_capacity": "5",
+            "quantity": "1",
+            "insurance_policy_number": "OG-24-1901-1803-00004567",
+            "insurance_expiry_date": "2028-06-06",
+            "puc_expiry_date": "2026-12-23",
+            "rc_document": image("rc.jpg"),
+            "insurance_document": image("insurance.jpg"),
+            "puc_document": image("puc.jpg"),
+            "vehicle_photo_front": image("front.jpg"),
+            "vehicle_photo_rear": image("rear.jpg"),
+            "vehicle_photo_left": image("left.jpg"),
+            "vehicle_photo_right": image("right.jpg"),
+            "description": "Well maintained vehicle.",
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()["ok"])
+        vehicle = Vehicle.objects.get(registration_number="UK07AB1234")
+        self.assertFalse(bool(vehicle.image))
+        self.assertTrue(bool(vehicle.vehicle_photo_front))
 
     def test_rejects_an_image_larger_than_five_megabytes(self):
         upload = SimpleUploadedFile("vehicle.jpg", b"x" * (5 * 1024 * 1024 + 1), content_type="image/jpeg")
