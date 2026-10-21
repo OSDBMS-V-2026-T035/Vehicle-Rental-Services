@@ -70,6 +70,7 @@ AUTHENTICATION_BACKENDS = [
 MIDDLEWARE = [
     "config.middleware.ApiDatabaseErrorMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -99,6 +100,13 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
+database_options = {"charset": "utf8mb4"}
+# Managed MySQL-compatible services such as TiDB Cloud require TLS. Local
+# Docker MySQL keeps working because no SSL mode is configured by default.
+mysql_ssl_mode = os.getenv("MYSQL_SSL_MODE", "").strip()
+if mysql_ssl_mode:
+    database_options["ssl_mode"] = mysql_ssl_mode
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
@@ -107,9 +115,7 @@ DATABASES = {
         "PASSWORD": os.getenv("MYSQL_PASSWORD", ""),
         "HOST": os.getenv("MYSQL_HOST", "127.0.0.1"),
         "PORT": os.getenv("MYSQL_PORT", "3306"),
-        "OPTIONS": {
-            "charset": "utf8mb4",
-        },
+        "OPTIONS": database_options,
     }
 }
 
@@ -129,6 +135,12 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [PROJECT_ROOT / "frontend", BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+if not DEBUG:
+    STORAGES = {
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
