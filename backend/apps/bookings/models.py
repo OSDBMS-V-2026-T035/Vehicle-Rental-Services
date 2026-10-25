@@ -19,6 +19,16 @@ class Booking(models.Model):
     pickup_date = models.DateField()
     return_date = models.DateField()
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    # Financial terms are frozen when a payment is captured.  ``total_amount``
+    # remains the authoritative customer payable amount for legacy callers.
+    commissionable_base = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    tax_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    commission_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    platform_commission = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    shopkeeper_net_earnings = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    financial_calculation_version = models.PositiveSmallIntegerField(default=1)
+    financial_confirmed_at = models.DateTimeField(null=True, blank=True)
+    commission_reversed_at = models.DateTimeField(null=True, blank=True)
     renter_full_name = models.CharField(max_length=150, blank=True)
     renter_age = models.PositiveSmallIntegerField(null=True, blank=True)
     renter_gender = models.CharField(max_length=24, blank=True)

@@ -153,7 +153,7 @@ function renderLiveResults(items, kind) {
         const image = kind === 'vehicles' && item.image_url ? `<img class="live-result-thumb" src="${escapeHtml(item.image_url)}" alt="${escapeHtml(title)}">` : '<span class="live-result-placeholder">⌁</span>';
         const unavailable = kind === 'vehicles' && item.availability_status === 'UNAVAILABLE';
         const bookingParams = new URLSearchParams({ vehicle_id: item.id, pickup_date: pickupDate.value, return_date: returnDate.value, checkout: '1' });
-        const authUrl = `/auth/?role=USER&mode=login&next=${encodeURIComponent(`/user-portal/?${bookingParams.toString()}`)}`;
+        const authUrl = `/auth/?role=USER&mode=login&next=${encodeURIComponent(`/booking/checkout/?${bookingParams.toString()}`)}`;
         const book = kind === 'vehicles' ? `<a class="result-direction${unavailable ? ' is-disabled' : ''}" ${unavailable ? 'aria-disabled="true"' : `href="${authUrl}"`}>${unavailable ? 'Unavailable' : 'Book now'}</a>` : '';
         const distance = item.distance_km !== undefined ? `${item.distance_km} km` : '—';
         if (kind === 'shops') return `<tr><td><div class="live-vehicle-cell">${image}<span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(item.address || 'Verified shop location')}</small></span></div></td><td>${escapeHtml(String(item.vehicle_count || 0))} vehicle(s)</td><td>${escapeHtml(distance)}</td><td>${item.directions_url ? `<a class="result-direction" href="${escapeHtml(item.directions_url)}" target="_blank" rel="noopener">Directions</a>` : '—'}</td></tr>`;

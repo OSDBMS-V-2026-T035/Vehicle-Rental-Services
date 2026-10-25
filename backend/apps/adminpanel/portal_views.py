@@ -1,8 +1,12 @@
 """Read APIs for the protected administrator portal."""
 
+import json
+from decimal import Decimal, InvalidOperation
+
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count
-from django.db.models import Sum
+from django.core.paginator import Paginator
+from django.db import transaction
+from django.db.models import Count, Q, Sum
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 
@@ -10,7 +14,12 @@ from apps.accounts.models import ShopkeeperProfile, User
 from apps.bookings.models import Booking
 from apps.payments.models import PaymentTransaction
 from apps.vehicles.models import Vehicle
-from .models import AuditLog
+from .models import AuditLog, CommissionConfiguration
+
+
+def _currency(value):
+    """Return API money values with stable two-decimal INR precision."""
+    return f"{Decimal(value or 0):.2f}"
 
 
 def _admin_only(view):
@@ -72,6 +81,50 @@ def admin_earnings(request):
         "shop": payment.booking.vehicle.shopkeeper.shop_name,
         "created_at": payment.created_at.isoformat(),
     } for payment in payments]})
+
+
+@_admin_only
+def admin_commission_configuration(request):
+    """Append-only policy history; historic booking snapshots never change."""
+    if request.method == "GET":
+        config = CommissionConfiguration.objects.select_related("updated_by").order_by("-updated_at", "-id").first()
+        return JsonResponse({"ok": True, "configured": bool(config), "commission_rate": str(config.commission_rate) if config else None,
+            "updated_at": config.updated_at.isoformat() if config else None,
+            "updated_by": (config.updated_by.get_full_name() or config.updated_by.email) if config and config.updated_by else None})
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "message": "Method not allowed."}, status=405)
+    try:
+        rate = Decimal(str(json.loads(request.body or "{}").get("commission_rate", "")))
+    except (json.JSONDecodeError, InvalidOperation):
+        return JsonResponse({"ok": False, "message": "Enter a valid commission percentage."}, status=400)
+    if not Decimal("0") <= rate <= Decimal("100"):
+        return JsonResponse({"ok": False, "message": "Commission must be between 0% and 100%."}, status=400)
+    with transaction.atomic():
+        config = CommissionConfiguration.objects.create(commission_rate=rate, updated_by=request.user)
+        AuditLog.objects.create(actor=request.user, action="commission_rate_updated", entity_type="commission_configuration", entity_id=config.id, metadata={"commission_rate": str(rate)})
+    return JsonResponse({"ok": True, "commission_rate": str(config.commission_rate), "updated_at": config.updated_at.isoformat(), "message": "Commission policy saved for future paid bookings."})
+
+
+@_admin_only
+@require_GET
+def admin_revenue(request):
+    rows = Booking.objects.filter(payment__status__in=[PaymentTransaction.Status.PAID, PaymentTransaction.Status.REFUNDED], financial_confirmed_at__isnull=False).select_related("customer", "vehicle", "vehicle__shopkeeper", "payment")
+    term = request.GET.get("q", "").strip()
+    if term:
+        rows = rows.filter(Q(pk__icontains=term) | Q(vehicle__brand__icontains=term) | Q(vehicle__model_name__icontains=term) | Q(vehicle__shopkeeper__shop_name__icontains=term))
+    for param, field in (("payment_status", "payment__status"), ("booking_status", "status")):
+        if request.GET.get(param): rows = rows.filter(**{field: request.GET[param]})
+    if request.GET.get("date_from"): rows = rows.filter(created_at__date__gte=request.GET["date_from"])
+    if request.GET.get("date_to"): rows = rows.filter(created_at__date__lte=request.GET["date_to"])
+    rows = rows.order_by("-created_at")
+    realized = rows.filter(payment__status=PaymentTransaction.Status.PAID, commission_reversed_at__isnull=True)
+    totals = realized.aggregate(gross=Sum("commissionable_base"), net=Sum("shopkeeper_net_earnings"), count=Count("id"))
+    recorded_commission = rows.aggregate(total=Sum("platform_commission"))["total"] or Decimal("0")
+    reversed_total = rows.filter(commission_reversed_at__isnull=False).aggregate(total=Sum("platform_commission"))["total"] or Decimal("0")
+    page = Paginator(rows, 25).get_page(request.GET.get("page", 1))
+    def row(item):
+        return {"id": item.id, "reference": f"RH-{item.id:06d}", "created_at": item.created_at.isoformat(), "pickup_date": item.pickup_date.isoformat(), "return_date": item.return_date.isoformat(), "customer": item.customer.get_full_name() or item.customer.email, "vehicle": item.vehicle.display_name, "shop": item.vehicle.shopkeeper.shop_name, "commissionable_base": str(item.commissionable_base), "tax_amount": str(item.tax_amount or 0), "customer_payable": str(item.total_amount), "commission_rate": str(item.commission_rate), "platform_commission": str(item.platform_commission), "shopkeeper_net_earnings": str(item.shopkeeper_net_earnings), "payment_status": item.payment.status, "booking_status": item.status, "reversed": bool(item.commission_reversed_at)}
+    return JsonResponse({"ok": True, "summary": {"eligible_booking_fare": _currency(totals["gross"]), "platform_commission": _currency(recorded_commission), "shopkeeper_earnings": _currency(totals["net"]), "eligible_bookings": totals["count"], "pending_payments": PaymentTransaction.objects.filter(status=PaymentTransaction.Status.PENDING).count(), "commission_reversals": _currency(reversed_total), "net_platform_revenue": _currency(recorded_commission - reversed_total)}, "rows": [row(item) for item in page.object_list], "pagination": {"page": page.number, "pages": page.paginator.num_pages, "count": page.paginator.count}})
 
 
 @_admin_only

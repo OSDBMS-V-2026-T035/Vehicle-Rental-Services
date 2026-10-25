@@ -15,6 +15,7 @@ from django.views.decorators.http import require_POST
 from apps.accounts.models import User
 from apps.bookings.models import Booking
 from apps.bookings.services import expire_checkout_holds
+from apps.bookings.finance import snapshot_booking_financials
 from apps.notifications.services import notify_paid_booking_with_documents
 from .gateways import get_payment_gateway
 from .models import PaymentTransaction
@@ -112,6 +113,9 @@ def _confirm_paid_booking(payment):
     if booking.status == Booking.Status.PENDING:
         booking.status = Booking.Status.CONFIRMED
         booking.save(update_fields=["status", "updated_at"])
+    # Must stay inside the caller's transaction when this is reached from a
+    # verification/webhook path, so duplicate callbacks retain one snapshot.
+    snapshot_booking_financials(booking)
 
 
 def _payment_window_message(payment):

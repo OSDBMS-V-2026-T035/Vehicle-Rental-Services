@@ -83,7 +83,7 @@ def _booking_redirect(value):
     """Only preserve a validated local customer checkout handoff after auth."""
     candidate = str(value or "").strip()
     parsed = urlparse(candidate)
-    if parsed.scheme or parsed.netloc or parsed.path != "/user-portal/":
+    if parsed.scheme or parsed.netloc or parsed.path not in {"/user-portal/", "/booking/checkout/"}:
         return "/user-portal/"
     values = parse_qs(parsed.query)
     try:
@@ -96,7 +96,7 @@ def _booking_redirect(value):
     return_day = parse_date(return_date)
     if vehicle_id < 1 or not pickup_day or not return_day or pickup_day < timezone.localdate() or return_day < pickup_day or return_day > pickup_day + timedelta(days=7):
         return "/user-portal/"
-    return f"/user-portal/?{urlencode({'vehicle_id': vehicle_id, 'pickup_date': pickup, 'return_date': return_date, 'checkout': '1'})}"
+    return f"{parsed.path}?{urlencode({'vehicle_id': vehicle_id, 'pickup_date': pickup, 'return_date': return_date, 'checkout': '1'})}"
 
 
 @ensure_csrf_cookie
@@ -126,6 +126,15 @@ def portal_view(request, portal_role, section=""):
         "user_email_verified": request.user.is_email_verified,
         "portal_section": section,
     })
+
+
+@login_required
+def booking_checkout_page(request):
+    """Protected checkout entrypoint; booking values are revalidated server-side."""
+    if request.user.role != User.Role.USER:
+        return render(request, "access_denied.html", {"message": "Customer access is required for checkout."}, status=403)
+    # Keep the dedicated URL while reusing the authenticated customer shell.
+    return portal_view(request, "USER", "checkout")
 
 @ensure_csrf_cookie
 def auth_page(request):

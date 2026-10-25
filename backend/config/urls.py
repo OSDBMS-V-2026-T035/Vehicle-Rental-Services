@@ -6,12 +6,12 @@ from django.contrib import admin
 from django.urls import path
 from django.views.generic import TemplateView
 
-from apps.accounts.views import auth_page, captcha_view, customer_profile_view, login_view, logout_view, password_reset_confirm_view, password_reset_otp_view, portal_view, send_otp_view, signup_view, update_customer_profile_view, verify_signup_otp_view
+from apps.accounts.views import auth_page, booking_checkout_page, captcha_view, customer_profile_view, login_view, logout_view, password_reset_confirm_view, password_reset_otp_view, portal_view, send_otp_view, signup_view, update_customer_profile_view, verify_signup_otp_view
 from apps.adminpanel.views import booking_action, shopkeeper_action, user_action, vehicle_action
-from apps.adminpanel.portal_views import admin_audit, admin_catalog, admin_earnings, admin_review_queues, admin_summary
+from apps.adminpanel.portal_views import admin_audit, admin_catalog, admin_commission_configuration, admin_earnings, admin_revenue, admin_review_queues, admin_summary
 from apps.bookings.views import booking_history, cancel_customer_booking, checkout_defaults, create_booking, create_checkout_booking_view, request_handover_code, shopkeeper_vehicle_availability
 from apps.bookings.documents import download_booking_document
-from apps.accounts.shopkeeper_portal_views import set_vehicle_availability, shopkeeper_reservation_action, shopkeeper_reservations, shopkeeper_summary, update_vehicle_rate
+from apps.accounts.shopkeeper_portal_views import set_vehicle_availability, shopkeeper_earnings, shopkeeper_reservation_action, shopkeeper_reservations, shopkeeper_summary, update_vehicle_rate
 from apps.payments.views import create_razorpay_order, razorpay_checkout_status, razorpay_webhook, reconcile_razorpay_payment, verify_razorpay_payment
 from apps.shops.views import search_shops, shopkeeper_dashboard, update_shopkeeper_profile
 from apps.vehicles.views import create_vehicle, my_vehicles, remove_vehicle, search_vehicles, update_vehicle_inventory, vehicle_detail
@@ -39,6 +39,8 @@ urlpatterns = [
     path("api/admin/review-queues/", admin_review_queues, name="admin-review-queues"),
     path("api/admin/audit/", admin_audit, name="admin-audit"),
     path("api/admin/earnings/", admin_earnings, name="admin-earnings"),
+    path("api/admin/revenue/", admin_revenue, name="admin-revenue"),
+    path("api/admin/commission/", admin_commission_configuration, name="admin-commission"),
     path("api/admin/catalog/<str:resource>/", admin_catalog, name="admin-catalog"),
     path("api/admin/vehicles/<int:vehicle_id>/action/", vehicle_action, name="admin-vehicle-action"),
     path("api/admin/users/<int:user_id>/action/", user_action, name="admin-user-action"),
@@ -50,10 +52,12 @@ urlpatterns = [
     path("shopkeeper/<str:section>/", portal_view, {"portal_role": "SHOPKEEPER"}, name="shopkeeper-portal-section"),
     path("user-portal/", portal_view, {"portal_role": "USER"}, name="user-portal"),
     path("user-portal/<str:section>/", portal_view, {"portal_role": "USER"}, name="user-portal-section"),
+    path("booking/checkout/", booking_checkout_page, name="booking-checkout-page"),
     path("control-panel/<str:section>/", portal_view, {"portal_role": "ADMIN"}, name="admin-portal-section"),
     path("api/shopkeeper/profile/", update_shopkeeper_profile, name="shopkeeper-profile-update"),
     path("api/shopkeeper/summary/", shopkeeper_summary, name="shopkeeper-summary"),
     path("api/shopkeeper/reservations/", shopkeeper_reservations, name="shopkeeper-reservations"),
+    path("api/shopkeeper/earnings/", shopkeeper_earnings, name="shopkeeper-earnings"),
     path("api/shopkeeper/reservations/<int:booking_id>/action/", shopkeeper_reservation_action, name="shopkeeper-reservation-action"),
     path("api/shopkeeper/vehicles/<int:vehicle_id>/availability/", set_vehicle_availability, name="shopkeeper-vehicle-availability"),
     path("api/shopkeeper/vehicles/<int:vehicle_id>/rate/", update_vehicle_rate, name="shopkeeper-vehicle-rate"),

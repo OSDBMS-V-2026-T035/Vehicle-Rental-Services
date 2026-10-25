@@ -5,7 +5,8 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import Sum
+from django.core.paginator import Paginator
+from django.db.models import Q, Sum
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
@@ -13,6 +14,7 @@ from django.views.decorators.http import require_GET, require_POST
 from apps.bookings.handover import record_handover_inspection
 from apps.bookings.models import Booking, BookingInspection
 from apps.bookings.services import active_reservation_filter
+from apps.bookings.finance import reverse_booking_commission
 from apps.payments.models import PaymentTransaction
 from apps.vehicles.models import Vehicle
 from apps.notifications.services import notify_user
@@ -74,6 +76,35 @@ def shopkeeper_reservations(request, profile):
 
 
 @_shopkeeper_only
+@require_GET
+def shopkeeper_earnings(request, profile):
+    """Financial snapshots for this shop only; URL parameters cannot widen scope."""
+    rows = Booking.objects.filter(
+        vehicle__shopkeeper=profile, payment__status__in=[PaymentTransaction.Status.PAID, PaymentTransaction.Status.REFUNDED],
+        financial_confirmed_at__isnull=False,
+    ).select_related("customer", "vehicle", "payment").order_by("-created_at")
+    if request.GET.get("vehicle_id"):
+        rows = rows.filter(vehicle_id=request.GET["vehicle_id"])
+    if request.GET.get("booking_status"):
+        rows = rows.filter(status=request.GET["booking_status"])
+    if request.GET.get("payment_status"):
+        rows = rows.filter(payment__status=request.GET["payment_status"])
+    if request.GET.get("date_from"):
+        rows = rows.filter(created_at__date__gte=request.GET["date_from"])
+    if request.GET.get("date_to"):
+        rows = rows.filter(created_at__date__lte=request.GET["date_to"])
+    term = request.GET.get("q", "").strip()
+    if term:
+        rows = rows.filter(Q(pk__icontains=term) | Q(vehicle__brand__icontains=term) | Q(vehicle__model_name__icontains=term))
+    realized = rows.filter(payment__status=PaymentTransaction.Status.PAID, commission_reversed_at__isnull=True)
+    totals = realized.aggregate(gross=Sum("commissionable_base"), commission=Sum("platform_commission"), net=Sum("shopkeeper_net_earnings"), count=Sum("id"))
+    page = Paginator(rows, 25).get_page(request.GET.get("page", 1))
+    def serialize(item):
+        return {"id": item.id, "reference": f"RH-{item.id:06d}", "booking_date": item.created_at.isoformat(), "vehicle": item.vehicle.display_name, "vehicle_image": item.vehicle.image.url if item.vehicle.image else "", "customer": item.customer.get_full_name() or item.customer.email, "pickup_date": item.pickup_date.isoformat(), "return_date": item.return_date.isoformat(), "commissionable_base": str(item.commissionable_base), "commission_rate": str(item.commission_rate), "platform_commission": str(item.platform_commission), "net_earnings": str(item.shopkeeper_net_earnings), "payment_status": item.payment.status, "booking_status": item.status, "reversed": bool(item.commission_reversed_at)}
+    return JsonResponse({"ok": True, "summary": {"eligible_rental_fare": str(totals["gross"] or 0), "commission_deducted": str(totals["commission"] or 0), "net_earnings": str(totals["net"] or 0), "eligible_bookings": realized.count(), "pending_payments": Booking.objects.filter(vehicle__shopkeeper=profile, payment__status=PaymentTransaction.Status.PENDING).count(), "note": "Computed earnings are not a settlement or payout."}, "rows": [serialize(item) for item in page.object_list], "pagination": {"page": page.number, "pages": page.paginator.num_pages}})
+
+
+@_shopkeeper_only
 @require_POST
 def shopkeeper_reservation_action(request, profile, booking_id):
     if profile.verification_status != ShopkeeperProfile.VerificationStatus.VERIFIED:
@@ -120,6 +151,7 @@ def shopkeeper_reservation_action(request, profile, booking_id):
                     return JsonResponse({"ok": False, "message": "Refund could not be initiated safely. Please try again or contact RideHub support."}, status=502)
                 payment.status = PaymentTransaction.Status.REFUNDED
                 payment.save(update_fields=["status", "updated_at"])
+                reverse_booking_commission(booking)
             booking.save(update_fields=["status", "handover_at", "received_back_at", "shopkeeper_cancellation_reason", "updated_at"])
     except Booking.DoesNotExist:
         return JsonResponse({"ok": False, "message": "Reservation not found."}, status=404)

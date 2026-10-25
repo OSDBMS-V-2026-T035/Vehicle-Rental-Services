@@ -6,7 +6,7 @@
   const nav = document.querySelector('#portal-nav');
   const csrf = app.csrf || '';
   let shopStatus = '';
-  const allowedViews = ['overview', 'shop', 'vehicles', 'addvehicle', 'reservations', 'fares'];
+  const allowedViews = ['overview', 'shop', 'vehicles', 'addvehicle', 'reservations', 'earnings', 'fares'];
   const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
   const money = value => new Intl.NumberFormat('en-IN', {style:'currency', currency:'INR', maximumFractionDigits:0}).format(Number(value || 0));
   const date = value => new Intl.DateTimeFormat('en-IN', {dateStyle:'medium'}).format(new Date(`${value}T00:00:00`));
@@ -39,6 +39,7 @@
       <button class="nav-item ${active === 'vehicles' ? 'active' : ''}" data-shop-view="vehicles"><span class="nav-icon">▤</span>Manage fleet</button>
       <button class="nav-item ${active === 'addvehicle' ? 'active' : ''}" data-shop-view="addvehicle"><span class="nav-icon">＋</span>Add vehicle</button>
       <button class="nav-item ${active === 'reservations' ? 'active' : ''}" data-shop-view="reservations"><span class="nav-icon">▣</span>Reservation centre</button>
+      <button class="nav-item ${active === 'earnings' ? 'active' : ''}" data-shop-view="earnings"><span class="nav-icon">₹</span>Earnings</button>
       <button class="nav-item ${active === 'fares' ? 'active' : ''}" data-shop-view="fares"><span class="nav-icon">₹</span>Fare & pricing</button>`;
   }
 
@@ -54,7 +55,15 @@
       window.location.assign(target === 'overview' ? '/shopkeeper/' : `/shopkeeper/${target}/`);
       return;
     }
-    ({overview, vehicles, reservations, addvehicle: addVehicle, shop: shopProfile, fares}[target] || overview)();
+    ({overview, vehicles, reservations, earnings, addvehicle: addVehicle, shop: shopProfile, fares}[target] || overview)();
+  }
+
+  async function earnings() {
+    shell('Earnings', 'Commission snapshots from paid bookings. Computed earnings are not payouts.', '<div class="loading-block">Loading earnings…</div>', 'earnings');
+    try {
+      const data = await api('/api/shopkeeper/earnings/'); const s=data.summary;
+      content.innerHTML += `<div class="dashboard-grid">${[['Eligible fare',s.eligible_rental_fare],['Commission deducted',s.commission_deducted],['Net earnings',s.net_earnings],['Eligible bookings',s.eligible_bookings]].map(([label,value])=>`<article class="card stat-card"><h3>${typeof value==='number'?value:money(value)}</h3><p>${label}</p></article>`).join('')}</div><article class="card"><p class="notice-bar">${esc(s.note)}</p><div class="table-wrap"><table class="user-table"><thead><tr><th>Booking</th><th>Vehicle</th><th>Rental</th><th>Commission</th><th>Net</th><th>Status</th></tr></thead><tbody>${data.rows.map(r=>`<tr><td>${esc(r.reference)}<small>${esc(r.customer)}</small></td><td>${esc(r.vehicle)}</td><td>${money(r.commissionable_base)}</td><td>${esc(r.commission_rate)}% · ${money(r.platform_commission)}${r.reversed?'<small>Reversed</small>':''}</td><td>${money(r.net_earnings)}</td><td>${esc(r.booking_status)}<small>${esc(r.payment_status)}</small></td></tr>`).join('') || '<tr><td colspan="6">No financial snapshots yet.</td></tr>'}</tbody></table></div></article>`;
+    } catch (error) { content.innerHTML = empty(error.message); }
   }
 
   async function overview() {

@@ -15,3 +15,7 @@ DATABASES = {
 }
 
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+
+# WhiteNoise is a deployment-only static-file middleware and is intentionally
+# not required for isolated database/API tests.
+MIDDLEWARE = [item for item in MIDDLEWARE if item != "whitenoise.middleware.WhiteNoiseMiddleware"]
