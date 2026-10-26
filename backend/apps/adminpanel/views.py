@@ -17,41 +17,6 @@ from .models import AuditLog
 from apps.vehicles.models import Vehicle
 
 
-def _permanently_delete_bookings(bookings):
-    """Delete bookings and their protected payment history as one admin action."""
-    booking_ids = list(bookings.values_list("id", flat=True))
-    if not booking_ids:
-        return
-    PaymentTransaction.objects.filter(booking_id__in=booking_ids).delete()
-    Booking.objects.filter(id__in=booking_ids).delete()
-    AuditLog.objects.filter(entity_type="booking", entity_id__in=booking_ids).delete()
-
-
-def _permanently_delete_vehicle(vehicle):
-    vehicle_id = vehicle.id
-    _permanently_delete_bookings(Booking.objects.filter(vehicle=vehicle))
-    vehicle.delete()
-    AuditLog.objects.filter(entity_type="vehicle", entity_id=vehicle_id).delete()
-
-
-def _permanently_delete_shopkeeper(profile):
-    """Remove the account and all shop-owned operational records permanently."""
-    profile_id, user_id = profile.id, profile.user_id
-    vehicle_ids = list(profile.vehicles.values_list("id", flat=True))
-    _permanently_delete_bookings(Booking.objects.filter(vehicle_id__in=vehicle_ids))
-    profile.user.delete()  # cascades the profile, vehicles and user notifications.
-    AuditLog.objects.filter(entity_type="shopkeeper", entity_id=profile_id).delete()
-    AuditLog.objects.filter(entity_type="vehicle", entity_id__in=vehicle_ids).delete()
-    AuditLog.objects.filter(metadata__user_id=user_id).delete()
-
-
-def _permanently_delete_customer(user):
-    user_id = user.id
-    _permanently_delete_bookings(Booking.objects.filter(customer=user))
-    user.delete()  # cascades account notifications and sessions.
-    AuditLog.objects.filter(entity_type="user", entity_id=user_id).delete()
-
-
 def _admin_only(view):
     @login_required
     def wrapped(request, *args, **kwargs):
@@ -136,8 +101,14 @@ def shopkeeper_action(request, profile_id):
         return JsonResponse({"ok": True, "message": "Shopkeeper details updated."})
     if action == "delete":
         with transaction.atomic():
-            _permanently_delete_shopkeeper(profile)
-        return JsonResponse({"ok": True, "message": "Shopkeeper and all related records were permanently deleted."})
+            # Preserve bookings, payments and audit evidence.  A financial
+            # account is deactivated rather than erased from the system.
+            profile.verification_status = ShopkeeperProfile.VerificationStatus.REVOKED
+            profile.user.is_active = False
+            profile.user.save(update_fields=["is_active", "updated_at"])
+            profile.save(update_fields=["verification_status", "updated_at"])
+            AuditLog.objects.create(actor=request.user, action="shopkeeper_deactivated", entity_type="shopkeeper", entity_id=profile.id)
+        return JsonResponse({"ok": True, "message": "Shopkeeper account deactivated; booking and payment history was preserved."})
     if action not in status_by_action:
         return JsonResponse({"ok": False, "message": "Choose approve, reject, revoke, edit, or delete."}, status=400)
     if action == "approve" and profile.user.is_permanently_banned:
@@ -180,8 +151,12 @@ def vehicle_action(request, vehicle_id):
         return JsonResponse({"ok": True, "message": "Vehicle rate and inventory updated."})
     if action == "delete":
         with transaction.atomic():
-            _permanently_delete_vehicle(vehicle)
-        return JsonResponse({"ok": True, "message": "Vehicle and its related records were permanently deleted."})
+            vehicle.is_available = False
+            vehicle.listing_status = Vehicle.ListingStatus.REJECTED
+            vehicle.admin_note = "Archived by RideHub administration."
+            vehicle.save(update_fields=["is_available", "listing_status", "admin_note", "updated_at"])
+            AuditLog.objects.create(actor=request.user, action="vehicle_archived", entity_type="vehicle", entity_id=vehicle.id)
+        return JsonResponse({"ok": True, "message": "Vehicle archived; booking and payment history was preserved."})
     if action not in {"approve", "reject"}:
         return JsonResponse({"ok": False, "message": "Choose approve, reject, edit, or delete."}, status=400)
     if action == "approve" and vehicle.shopkeeper.verification_status != ShopkeeperProfile.VerificationStatus.VERIFIED:
@@ -224,8 +199,10 @@ def user_action(request, user_id):
         return JsonResponse({"ok": True, "message": "Customer details updated."})
     if action == "delete":
         with transaction.atomic():
-            _permanently_delete_customer(user)
-        return JsonResponse({"ok": True, "message": "Customer and related records were permanently deleted."})
+            user.is_active = False
+            user.save(update_fields=["is_active", "updated_at"])
+            AuditLog.objects.create(actor=request.user, action="user_deactivated", entity_type="user", entity_id=user.id)
+        return JsonResponse({"ok": True, "message": "Customer account deactivated; booking and payment history was preserved."})
     if action not in {"revoke", "restore", "permanent_ban"}:
         return JsonResponse({"ok": False, "message": "Choose revoke, restore, edit, or delete."}, status=400)
     if action == "restore" and user.is_permanently_banned:
@@ -248,13 +225,7 @@ def user_action(request, user_id):
 def booking_action(request, booking_id):
     action = _payload(request).get("action", "").lower()
     if action == "delete":
-        with transaction.atomic():
-            try:
-                booking = Booking.objects.select_for_update().get(pk=booking_id)
-            except Booking.DoesNotExist:
-                return JsonResponse({"ok": False, "message": "Booking not found."}, status=404)
-            _permanently_delete_bookings(Booking.objects.filter(pk=booking.pk))
-        return JsonResponse({"ok": True, "message": "Booking and payment record were permanently deleted."})
+        return JsonResponse({"ok": False, "message": "Bookings are financial records and cannot be deleted. Use the audited cancellation workflow where applicable."}, status=409)
     if action not in {"confirm", "cancel", "complete", "edit"}:
         return JsonResponse({"ok": False, "message": "Choose confirm, cancel, complete, edit, or delete."}, status=400)
     status_by_action = {

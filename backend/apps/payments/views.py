@@ -206,11 +206,11 @@ def verify_razorpay_payment(request):
                 return JsonResponse({"ok": False, "message": "This checkout session is no longer valid. Start payment again."}, status=409)
             gateway.verify_payment_signature({"razorpay_order_id": order_id, "razorpay_payment_id": gateway_payment_id, "razorpay_signature": signature})
             _capture_and_record(gateway, payment, gateway_payment_id)
+            _confirm_paid_booking(payment)
     except PaymentTransaction.DoesNotExist:
         return JsonResponse({"ok": False, "message": "Payment record not found."}, status=404)
     except Exception:
         return JsonResponse({"ok": False, "message": "We could not verify this payment. No booking status was changed."}, status=400)
-    _confirm_paid_booking(payment)
     _notify_customer_of_paid_booking(payment)
     return JsonResponse({"ok": True, "message": "Payment verified successfully. Your ride is confirmed."})
 
@@ -236,11 +236,11 @@ def reconcile_razorpay_payment(request, payment_id):
             if not gateway_payment_id:
                 return JsonResponse({"ok": True, "status": "PENDING", "message": "No completed payment was found yet. You can safely retry."})
             _capture_and_record(gateway, payment, gateway_payment_id)
+            _confirm_paid_booking(payment)
     except PaymentTransaction.DoesNotExist:
         return JsonResponse({"ok": False, "message": "Payment record not found."}, status=404)
     except Exception:
         return JsonResponse({"ok": True, "status": "PENDING", "message": "Payment confirmation is still in progress. Do not make a duplicate payment."})
-    _confirm_paid_booking(payment)
     _notify_customer_of_paid_booking(payment)
     return JsonResponse({"ok": True, "status": "PAID", "message": "Payment confirmed successfully."})
 
@@ -280,9 +280,9 @@ def razorpay_webhook(request):
             return JsonResponse({"ok": True})
         try:
             _capture_and_record(gateway, payment, gateway_payment_id)
+            _confirm_paid_booking(payment)
         except Exception:
             return JsonResponse({"ok": True})
-    _confirm_paid_booking(payment)
     _notify_customer_of_paid_booking(payment)
     return JsonResponse({"ok": True})
 
