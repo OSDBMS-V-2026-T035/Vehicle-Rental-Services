@@ -23,6 +23,11 @@
         if (fields.longitude) fields.longitude.value = Number(longitude).toFixed(6);
         if (fields.placeId) fields.placeId.value = placeId || '';
         input.dataset.locationSelected = 'true';
+        if (input.id === 'location') {
+            window.dispatchEvent(new CustomEvent('ridehub:location-selected', {
+                detail: { latitude: Number(latitude), longitude: Number(longitude) },
+            }));
+        }
     }
 
     function clearCoordinates(input) {

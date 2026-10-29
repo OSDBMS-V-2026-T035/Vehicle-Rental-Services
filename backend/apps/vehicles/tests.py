@@ -141,8 +141,16 @@ class VehiclePayloadAvailabilityTests(SimpleTestCase):
         self.assertEqual(payload["available_quantity"], 2)
         self.assertEqual(payload["availability_status"], "AVAILABLE")
 
+    def test_payload_uses_the_production_safe_image_endpoint_when_a_photo_exists(self):
+        self.vehicle.image = object()
+
+        payload = _vehicle_payload(self.vehicle)
+
+        self.assertEqual(payload["image_url"], "/api/vehicles/1/image/")
+
     def test_vehicle_detail_route_does_not_shadow_live_search(self):
         self.assertEqual(resolve("/api/vehicles/search/").url_name, "vehicles-search")
+        self.assertEqual(resolve("/api/vehicles/17/image/").url_name, "vehicle-image")
         self.assertEqual(resolve("/api/vehicles/17/").url_name, "vehicle-detail")
 
 

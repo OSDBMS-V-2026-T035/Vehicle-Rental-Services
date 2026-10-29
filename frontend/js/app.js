@@ -101,6 +101,11 @@ function dateAfter(dateString, days) {
 
 const today = localDateString();
 
+// The nearby carousel is live even before a visitor submits the full form.
+// Give its availability query a safe one-day default window.
+if (!pickupDate.value) pickupDate.value = today;
+if (!returnDate.value) returnDate.value = dateAfter(today, 1);
+
 function syncDateConstraints() {
     pickupDate.min = today;
     const earliestReturn = pickupDate.value && pickupDate.value >= today ? pickupDate.value : today;
@@ -136,6 +141,7 @@ const form = document.querySelector('#search-form');
 const message = document.querySelector('#form-message');
 const resultsPanel = document.querySelector('#live-results');
 const resultsGrid = document.querySelector('#live-results-grid');
+const trendingGrid = document.querySelector('#trending-vehicles');
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
@@ -150,7 +156,7 @@ function renderLiveResults(items, kind) {
     }
     const rows = items.map((item) => {
         const title = item.name;
-        const image = kind === 'vehicles' && item.image_url ? `<img class="live-result-thumb" src="${escapeHtml(item.image_url)}" alt="${escapeHtml(title)}">` : '<span class="live-result-placeholder">⌁</span>';
+        const image = kind === 'vehicles' && item.image_url ? `<img class="live-result-thumb" src="${escapeHtml(item.image_url)}" alt="${escapeHtml(title)}" onerror="this.onerror=null;this.src='/static/images/car.jpg'">` : '<span class="live-result-placeholder">⌁</span>';
         const unavailable = kind === 'vehicles' && item.availability_status === 'UNAVAILABLE';
         const bookingParams = new URLSearchParams({ vehicle_id: item.id, pickup_date: pickupDate.value, return_date: returnDate.value, checkout: '1' });
         const authUrl = `/auth/?role=USER&mode=login&next=${encodeURIComponent(`/booking/checkout/?${bookingParams.toString()}`)}`;
@@ -161,6 +167,45 @@ function renderLiveResults(items, kind) {
     }).join('');
     const headings = kind === 'shops' ? '<tr><th>Shop</th><th>Fleet</th><th>Distance</th><th>Action</th></tr>' : '<tr><th>Vehicle</th><th>Rate</th><th>Shop</th><th>Distance</th><th>Availability</th><th>Action</th></tr>';
     resultsGrid.innerHTML = `<div class="live-table-wrap"><table class="live-results-table"><thead>${headings}</thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function vehicleFallback(type) {
+    return ({ bike: '/static/images/motorcycle.jpg', scooter: '/static/images/scooter.jpg', cycle: '/static/images/bicycle.jpg', commercial: '/static/images/van.jpg' })[type] || '/static/images/car.jpg';
+}
+
+function renderTrendingVehicles(vehicles) {
+    if (!trendingGrid) return;
+    if (!vehicles.length) {
+        trendingGrid.innerHTML = '<div class="trending-loading">No approved rides are available near this location yet. Try a different area or search radius.</div>';
+        return;
+    }
+    trendingGrid.innerHTML = vehicles.slice(0, 6).map((vehicle) => {
+        const image = escapeHtml(vehicle.image_url || vehicleFallback(vehicle.type));
+        const fallback = escapeHtml(vehicleFallback(vehicle.type));
+        const place = escapeHtml(vehicle.address || vehicle.shop || 'Verified local rental');
+        const distance = vehicle.distance_km !== undefined ? `${escapeHtml(vehicle.distance_km)} km away` : place;
+        const bookingParams = new URLSearchParams({ vehicle_id: vehicle.id, pickup_date: pickupDate.value, return_date: returnDate.value, checkout: '1' });
+        const authUrl = `/auth/?role=USER&mode=login&next=${encodeURIComponent(`/booking/checkout/?${bookingParams.toString()}`)}`;
+        return `<article class="vehicle-card" data-type="${escapeHtml(vehicle.type)}"><div class="vehicle-image live-trending-image"><img src="${image}" alt="${escapeHtml(vehicle.name)}" onerror="this.onerror=null;this.src='${fallback}'"><button class="favorite" type="button" aria-label="Save ${escapeHtml(vehicle.name)}">♡</button></div><div class="vehicle-info"><div class="vehicle-title"><h3>${escapeHtml(vehicle.name)}</h3><span>${vehicle.availability_status === 'UNAVAILABLE' ? 'Unavailable' : '● Available'}</span></div><p>⌖ ${distance}</p><strong>₹${escapeHtml(vehicle.daily_rate)}<small>/day</small></strong><a class="trending-book" href="${authUrl}">View & book →</a></div></article>`;
+    }).join('');
+}
+
+async function loadTrendingVehicles() {
+    if (!trendingGrid) return;
+    const latitude = document.querySelector('#location-latitude').value;
+    const longitude = document.querySelector('#location-longitude').value;
+    const location = document.querySelector('#location').value.trim();
+    const params = new URLSearchParams({ vehicle_type: 'all', q: latitude && longitude ? '' : location, pickup_date: pickupDate.value, return_date: returnDate.value, radius: '15', sort: 'recommended' });
+    if (latitude && longitude) { params.set('latitude', latitude); params.set('longitude', longitude); }
+    trendingGrid.innerHTML = '<div class="trending-loading">Refreshing rides near your location…</div>';
+    try {
+        const response = await fetch(`/api/vehicles/search/?${params}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Nearby rides could not be loaded.');
+        renderTrendingVehicles(data.vehicles || []);
+    } catch (error) {
+        trendingGrid.innerHTML = `<div class="trending-loading">${escapeHtml(error.message)}</div>`;
+    }
 }
 
 async function loadLiveResults(type, location) {
@@ -197,7 +242,7 @@ form.addEventListener('submit', async (event) => {
     message.style.color = '#71c5ff';
     message.textContent = `Searching verified ${searchMode === 'shop' ? 'shops' : type === 'all' ? 'vehicles' : `${type}s`} within 15 km of ${location}.`;
     await loadLiveResults(type, location);
-    filterVehicles(type);
+    await loadTrendingVehicles();
     resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
@@ -216,16 +261,25 @@ document.querySelectorAll('.category-card').forEach((card) => {
     card.addEventListener('click', () => {
         const category = card.dataset.category;
         document.querySelector('#vehicle-type').value = category;
-        filterVehicles(category);
+        loadTrendingVehicles();
         document.querySelector('#trending').scrollIntoView({ behavior: 'smooth', block: 'start' });
         showToast(`${card.querySelector('strong').textContent} selected. Compare available rides below.`);
     });
 });
 
-document.querySelectorAll('.favorite').forEach((button) => {
-    button.addEventListener('click', () => {
+document.addEventListener('click', (event) => {
+    const button = event.target.closest('.favorite');
+    if (button) {
         button.classList.toggle('saved');
         button.textContent = button.classList.contains('saved') ? '♥' : '♡';
         showToast(button.classList.contains('saved') ? 'Vehicle saved to your favourites.' : 'Vehicle removed from your favourites.');
-    });
+    }
 });
+
+// maps.js sends this after permission is granted or an address is selected.
+// That makes the "Trending Near You" inventory follow the user's location
+// without another button press.
+window.addEventListener('ridehub:location-selected', loadTrendingVehicles);
+pickupDate.addEventListener('change', loadTrendingVehicles);
+returnDate.addEventListener('change', loadTrendingVehicles);
+loadTrendingVehicles();

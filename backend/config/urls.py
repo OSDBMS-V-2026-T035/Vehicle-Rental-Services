@@ -14,7 +14,7 @@ from apps.bookings.documents import download_booking_document
 from apps.accounts.shopkeeper_portal_views import set_vehicle_availability, shopkeeper_earnings, shopkeeper_reservation_action, shopkeeper_reservations, shopkeeper_summary, update_vehicle_rate
 from apps.payments.views import create_razorpay_order, razorpay_checkout_status, razorpay_webhook, reconcile_razorpay_payment, verify_razorpay_payment
 from apps.shops.views import search_shops, shopkeeper_dashboard, update_shopkeeper_profile
-from apps.vehicles.views import create_vehicle, my_vehicles, remove_vehicle, search_vehicles, update_vehicle_inventory, vehicle_detail
+from apps.vehicles.views import create_vehicle, my_vehicles, remove_vehicle, search_vehicles, update_vehicle_inventory, vehicle_detail, vehicle_image
 
 
 urlpatterns = [
@@ -67,6 +67,7 @@ urlpatterns = [
     path("api/shopkeeper/vehicles/<int:vehicle_id>/remove/", remove_vehicle, name="vehicle-remove"),
     path("api/shops/search/", search_shops, name="shops-search"),
     path("api/vehicles/search/", search_vehicles, name="vehicles-search"),
+    path("api/vehicles/<int:vehicle_id>/image/", vehicle_image, name="vehicle-image"),
     path("api/vehicles/<int:vehicle_id>/", vehicle_detail, name="vehicle-detail"),
     path("api/bookings/", create_booking, name="booking-create"),
     path("api/bookings/checkout/", create_checkout_booking_view, name="booking-checkout"),

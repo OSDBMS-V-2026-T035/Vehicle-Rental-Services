@@ -1,5 +1,6 @@
 import json
 import math
+import mimetypes
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -7,7 +8,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, IntegrityError
 from django.db.models import Count, Q
-from django.http import JsonResponse
+from django.http import FileResponse, Http404, JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
@@ -103,11 +104,13 @@ def _vehicle_payload(vehicle, distance=None, reserved_units=None):
         # New listings keep the mandatory front photo as the main preview.  Do
         # not save the same uploaded file twice: temporary uploads on Render
         # are moved after the first save and a second FileField then fails.
+        # Serve uploaded photos through the application endpoint instead of
+        # returning a bare /media URL.  WhiteNoise serves static assets on the
+        # production host, but it deliberately does not serve MEDIA_ROOT.
+        # This keeps approved shopkeeper photos visible after deployment.
         "image_url": (
-            vehicle.image.url
-            if vehicle.image
-            else getattr(vehicle, "vehicle_photo_front", None).url
-            if getattr(vehicle, "vehicle_photo_front", None)
+            f"/api/vehicles/{vehicle.id}/image/"
+            if getattr(vehicle, "image", None) or getattr(vehicle, "vehicle_photo_front", None)
             else default_images.get(vehicle.vehicle_type, "/static/images/car.jpg")
         ),
     }
@@ -118,6 +121,25 @@ def _vehicle_payload(vehicle, distance=None, reserved_units=None):
     if distance is not None:
         result["distance_km"] = round(distance, 1)
     return result
+
+
+@require_GET
+def vehicle_image(request, vehicle_id):
+    """Return the public preview photo for an approved marketplace listing."""
+    try:
+        vehicle = Vehicle.objects.get(pk=vehicle_id, listing_status=Vehicle.ListingStatus.APPROVED)
+    except Vehicle.DoesNotExist as exc:
+        raise Http404("Vehicle photo not found.") from exc
+    image = vehicle.image or vehicle.vehicle_photo_front
+    if not image:
+        raise Http404("Vehicle photo not found.")
+    try:
+        image.open("rb")
+        response = FileResponse(image, content_type=mimetypes.guess_type(image.name)[0] or "image/jpeg")
+    except (FileNotFoundError, OSError) as exc:
+        raise Http404("Vehicle photo is unavailable.") from exc
+    response["Cache-Control"] = "public, max-age=3600"
+    return response
 
 
 def _date_error(request):

@@ -129,7 +129,7 @@
     const overlay = document.createElement('div'); overlay.className = 'checkout-overlay shop-inspection-overlay';
     overlay.innerHTML = `<section class="checkout-modal shop-inspection-modal" role="dialog" aria-modal="true" aria-labelledby="inspection-title"><button class="modal-close" type="button" aria-label="Close">×</button><p class="user-eyebrow">DIGITAL ${stage.toUpperCase()} INSPECTION</p><h2 id="inspection-title">${stage === 'pickup' ? 'Vehicle pickup' : 'Vehicle return'}</h2><p>Complete the checklist with the customer present. Scan their short-lived RideHub QR or enter the 6-digit code.</p><form id="shop-inspection-form"><label>Customer code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></label><button class="ghost-button qr-scan-button" type="button" data-scan-handover-qr>Scan customer QR</button><p class="inspection-message" data-qr-message aria-live="polite"></p><div class="inspection-fields">${fields.map(([key,label]) => `<label>${label}<select name="${key}" required><option value="">Choose condition</option><option value="true">Pass</option><option value="false">Needs attention</option></select></label>`).join('')}</div><div class="inspection-fields"><label>Odometer (km)<input name="odometer_km" type="number" min="0" max="2000000" step="1" required></label><label>Fuel / battery (%)<input name="fuel_percent" type="number" min="0" max="100" step="1" required></label></div><label>Notes (optional)<textarea name="notes" maxlength="1000" rows="3"></textarea></label><p class="inspection-message" aria-live="polite"></p><button class="form-action" type="submit">Verify code & record ${stage} inspection</button></form></section>`;
     document.body.appendChild(overlay);
-    const close = () => overlay.remove(); overlay.querySelector('.modal-close').addEventListener('click', close); overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+    const close = () => { overlay._stopQrScanner?.(); overlay.remove(); }; overlay.querySelector('.modal-close').addEventListener('click', close); overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
     overlay.querySelector('[data-scan-handover-qr]')?.addEventListener('click', () => scanHandoverQr(overlay, id, stage));
     overlay.querySelector('#shop-inspection-form').addEventListener('submit', async event => {
       event.preventDefault(); const form = event.currentTarget; const submit = form.querySelector('[type="submit"]'); const messageTarget = form.querySelector('.inspection-message'); submit.disabled = true; messageTarget.textContent = 'Saving inspection…';
@@ -141,16 +141,33 @@
   }
 
   async function scanHandoverQr(overlay, bookingId, stage) {
-    const target = overlay.querySelector('[name="code"]'); const messageTarget = overlay.querySelector('[data-qr-message]');
-    if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) { messageTarget.textContent = 'QR scanning is not supported in this browser. Enter the 6-digit code instead.'; messageTarget.classList.add('error'); return; }
-    const detector = new BarcodeDetector({ formats: ['qr_code'] }); let stream;
+    const target = overlay.querySelector('[name="code"]'); const messageTarget = overlay.querySelector('[data-qr-message]'); const button = overlay.querySelector('[data-scan-handover-qr]');
+    if (!navigator.mediaDevices?.getUserMedia) { messageTarget.textContent = 'This browser cannot access a camera. Enter the customer’s 6-digit code instead.'; messageTarget.classList.add('error'); return; }
+    if (!('BarcodeDetector' in window)) { messageTarget.textContent = 'Camera permission is available, but QR detection is not supported by this browser. Use current Chrome/Edge or enter the customer’s 6-digit code.'; messageTarget.classList.add('error'); return; }
+    let detector; let stream; let preview; let stopped = false; let frame;
+    try { detector = new BarcodeDetector({ formats: ['qr_code'] }); }
+    catch (_) { messageTarget.textContent = 'QR detection could not initialise. Enter the customer’s 6-digit code instead.'; messageTarget.classList.add('error'); return; }
+    const stop = () => { stopped = true; if (frame) cancelAnimationFrame(frame); stream?.getTracks().forEach(track => track.stop()); preview?.remove(); if (button) button.disabled = false; };
+    overlay._stopQrScanner?.(); overlay._stopQrScanner = stop;
     try {
+      if (button) button.disabled = true;
+      messageTarget.classList.remove('error'); messageTarget.textContent = 'Requesting camera permission…';
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
       const video = document.createElement('video'); video.autoplay = true; video.playsInline = true; video.srcObject = stream;
-      const preview = document.createElement('div'); preview.className = 'qr-camera-preview'; preview.append(video); overlay.querySelector('#shop-inspection-form').prepend(preview); await video.play(); messageTarget.textContent = 'Point the camera at the customer QR code…';
-      const scan = async () => { const found = await detector.detect(video); const value = found[0]?.rawValue || ''; const match = /^ridehub-handover:v1:(\d+):(PICKUP|RETURN):(\d{6})$/.exec(value); if (match && Number(match[1]) === Number(bookingId) && match[2] === stage.toUpperCase()) { target.value = match[3]; messageTarget.textContent = 'QR verified. Continue with the checklist.'; stream.getTracks().forEach(track => track.stop()); preview.remove(); return; } if (value) { messageTarget.textContent = 'This QR does not belong to this booking or handover stage.'; } if (document.body.contains(overlay)) window.setTimeout(scan, 350); };
-      scan();
-    } catch (error) { stream?.getTracks().forEach(track => track.stop()); messageTarget.textContent = 'Camera could not start. Enter the 6-digit code instead.'; messageTarget.classList.add('error'); }
+      preview = document.createElement('div'); preview.className = 'qr-camera-preview'; preview.append(video); overlay.querySelector('#shop-inspection-form').prepend(preview); await video.play(); messageTarget.textContent = 'Camera ready. Point it at the customer QR code…';
+      const scan = async () => {
+        if (stopped || !document.body.contains(overlay)) return stop();
+        try {
+          if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            const found = await detector.detect(video); const value = found[0]?.rawValue || ''; const match = /^ridehub-handover:v1:(\d+):(PICKUP|RETURN):(\d{6})$/.exec(value);
+            if (match && Number(match[1]) === Number(bookingId) && match[2] === stage.toUpperCase()) { target.value = match[3]; stop(); messageTarget.textContent = 'QR verified. Continue with the checklist.'; return; }
+            if (value) { messageTarget.textContent = 'This QR does not belong to this booking or handover stage.'; }
+          }
+        } catch (_) { /* Frames can be unavailable while a device refocuses; keep scanning. */ }
+        frame = requestAnimationFrame(scan);
+      };
+      frame = requestAnimationFrame(scan);
+    } catch (error) { stop(); const denied = error?.name === 'NotAllowedError' || error?.name === 'SecurityError'; messageTarget.textContent = denied ? 'Camera permission was denied. Allow camera access in your browser settings, or enter the 6-digit code.' : 'Camera could not start. Enter the customer’s 6-digit code instead.'; messageTarget.classList.add('error'); }
   }
 
   async function reservationAction(id, action) {
