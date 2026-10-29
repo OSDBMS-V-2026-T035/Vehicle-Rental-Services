@@ -302,8 +302,12 @@ def _confirmation_bytes(booking):
     detail("Pickup point", shop.shop_name, shop.shop_address, f"Proprietor: {plain(shop.proprietor_name)} | Contact: {plain(shop.user.phone_number)}", "pin")
     detail("Drop point", "Return vehicle to the same rental partner", f"Expected return: {_date(booking.return_date)}", icon_kind="pin")
     label("Passenger details", y)
-    text("Booking status", right - 33 * mm, y, "Helvetica", 7.6, MUTED)
-    text("CONFIRMED", right - 28 * mm, y, "Helvetica-Bold", 8, GREEN)
+    # The old fixed positions made the status label collide with CONFIRMED on
+    # page one.  Keep both strings in separate, right-aligned columns.
+    pdf.setFillColor(MUTED); pdf.setFont("Helvetica", 7.6)
+    pdf.drawRightString(right - 25 * mm, y, "Booking status")
+    pdf.setFillColor(GREEN); pdf.setFont("Helvetica-Bold", 8)
+    pdf.drawRightString(right, y, "CONFIRMED")
     y -= 7 * mm
     icon(x + 10 * mm, y - 2 * mm, "person")
     text(customer_name, x + 15 * mm, y - 2 * mm, "Helvetica-Bold", 8.7, INK)
@@ -492,4 +496,10 @@ def download_booking_document(request, booking_id, kind):
         raise Http404("Ride confirmation is not available for a cancelled booking.")
     document_kind = "receipt" if kind == "receipt" else "confirmation"
     filename = f"ridehub-{document_kind}-{_ride_reference(booking).lower()}.pdf"
-    return FileResponse(BytesIO(_document_bytes(booking, document_kind)), as_attachment=True, filename=filename, content_type="application/pdf")
+    response = FileResponse(BytesIO(_document_bytes(booking, document_kind)), as_attachment=True, filename=filename, content_type="application/pdf")
+    # PDFs are generated from the current booking/payment rows for every
+    # request.  Prevent browsers or proxies from handing a customer a stale
+    # cached copy after a booking update.
+    response["Cache-Control"] = "no-store, max-age=0"
+    response["Pragma"] = "no-cache"
+    return response

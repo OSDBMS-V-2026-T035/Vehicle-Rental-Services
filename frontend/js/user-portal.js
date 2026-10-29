@@ -197,7 +197,24 @@
     if (!dedicated) document.body.appendChild(modal);
     const aadhaarInput = modal.querySelector('[name="aadhaar"]'); aadhaarInput.addEventListener('input', () => { const digits = aadhaarInput.value.replace(/\D/g, '').slice(0, 12); aadhaarInput.value = digits.replace(/(\d{4})(?=\d)/g, '$1 ').trim(); });
     if (!dedicated) { modal.querySelector('#close-checkout').addEventListener('click', () => modal.remove()); modal.addEventListener('click', event => { if (event.target === modal) modal.remove(); }); }
-    modal.querySelector('#checkout-form').addEventListener('submit', event => submitCheckout(event, modal)); }
+    modal.querySelector('#checkout-form').addEventListener('submit', event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      if (!form.reportValidity()) return;
+      const payload = Object.fromEntries(new FormData(form).entries());
+      Object.assign(payload, { vehicle_id: state.selectedVehicle.id, pickup_date: state.pickup, return_date: state.returnDate });
+      showCheckoutReview(modal, payload, rentalDays, rentalFare);
+    }); }
+
+  function showCheckoutReview(modal, payload, rentalDays, rentalFare) {
+    const vehicle = state.selectedVehicle;
+    const money = value => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+    const gender = String(payload.gender || '').replaceAll('_', ' ');
+    const shell = modal.querySelector('.checkout-modal');
+    shell.innerHTML = `<button class="modal-close" data-back-to-renter aria-label="Back to renter details">←</button><p class="user-eyebrow">REVIEW BEFORE PAYMENT</p><h2>Confirm your fare and ride details</h2><p class="modal-subtitle">Please review the complete booking before opening the secure payment page.</p><div class="checkout-review-grid"><section><h3>Ride & provider</h3><p><b>${escape(vehicle.name)}</b><br>${escape(vehicle.type)} · ${escape(vehicle.fuel_type || 'Fuel details unavailable')} · ${escape(vehicle.seating_capacity)} seats</p><p><b>${escape(vehicle.shop)}</b><br>${escape(vehicle.address || 'Verified rental location')}</p><p><b>Rental dates</b><br>${escape(state.pickup)} to ${escape(state.returnDate)} · ${rentalDays} day${rentalDays === 1 ? '' : 's'}</p></section><section><h3>Fare breakdown</h3><dl class="fare-breakdown"><div><dt>Rental fare (${rentalDays} × ${money(vehicle.daily_rate)})</dt><dd>${money(rentalFare)}</dd></div><div><dt>GST</dt><dd>₹0</dd></div><div class="fare-total"><dt>Total payable</dt><dd>${money(rentalFare)}</dd></div></dl><small>GST is currently not configured for this booking, so no tax has been added.</small></section><section><h3>Renter details</h3><p><b>${escape(payload.full_name)}</b><br>${escape(payload.phone)}<br>${escape(payload.email)}</p><p><b>Age / gender</b><br>${escape(payload.age)} / ${escape(gender || '—')}</p></section></div><p id="checkout-review-message" class="checkout-message" role="status"></p><button class="user-primary-action" data-confirm-checkout>Confirm details & continue to payment <b>→</b></button>`;
+    shell.querySelector('[data-back-to-renter]').addEventListener('click', () => openCheckout(vehicle, modal === content));
+    shell.querySelector('[data-confirm-checkout]').addEventListener('click', () => submitCheckout(payload, modal));
+  }
 
   async function reconcilePayment(paymentId, bookingId, modal = null) {
     if (!paymentId) return false;
@@ -218,8 +235,10 @@
       const data = await request('/api/bookings/history/');
       const booking = data.bookings.find(item => String(item.id) === String(bookingId));
       if (!booking || booking.payment?.status !== 'PAID') throw new Error('Booking refresh pending');
-      const ticket = booking.status !== 'CANCELLED' ? `<a class="user-secondary-action" href="/api/bookings/${booking.id}/documents/confirmation/">Download ride ticket</a>` : '';
-      modal.querySelector('.checkout-modal').innerHTML = `<div class="checkout-success"><span>✓</span><p class="user-eyebrow">PAYMENT SUCCESSFUL</p><h2>Your ride is booked.</h2><p>Payment is confirmed. Download your documents now or find them later in My bookings.</p><div class="success-reference"><small>Booking reference</small><strong>RH-${String(booking.id).padStart(6, '0')}</strong><small>₹${escape(Number(booking.payment.amount || booking.total_amount).toLocaleString('en-IN'))} · Paid online</small></div><div class="result-actions"><a class="user-primary-action" href="/api/bookings/${booking.id}/documents/receipt/">Download payment receipt</a>${ticket}</div><a class="user-secondary-action" href="/user-portal/bookings/">View my bookings</a></div>`;
+      // Always land on the booking success view. This also survives browser
+      // pop-up/UPI return behaviour that can replace the original checkout DOM.
+      sessionStorage.setItem('ridehub-payment-success-booking', String(bookingId));
+      window.location.assign(`/user-portal/bookings/?success=${encodeURIComponent(bookingId)}`);
     } catch (_) {
       sessionStorage.setItem('ridehub-payment-success-booking', String(bookingId));
       window.location.assign(`/user-portal/bookings/?success=${encodeURIComponent(bookingId)}`);
@@ -291,8 +310,8 @@
     } catch (error) { showToast(error.message); payButton.disabled = false; }
   }
 
-  async function submitCheckout(event, modal) {
-    event.preventDefault(); const form = event.currentTarget; const message = form.querySelector('#checkout-message'); const button = form.querySelector('button[type="submit"]'); const payload = Object.fromEntries(new FormData(form).entries()); Object.assign(payload, { vehicle_id: state.selectedVehicle.id, pickup_date: state.pickup, return_date: state.returnDate }); message.textContent = 'Validating details and holding the vehicle…'; message.className = 'checkout-message'; button.disabled = true;
+  async function submitCheckout(payload, modal) {
+    const message = modal.querySelector('#checkout-review-message'); const button = modal.querySelector('[data-confirm-checkout]'); message.textContent = 'Validating details and holding the vehicle…'; message.className = 'checkout-message'; button.disabled = true;
     try {
       const data = await request('/api/bookings/checkout/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       sessionStorage.setItem(`ridehub-checkout-aadhaar-${app.email}`, String(payload.aadhaar || '').replace(/\D/g, ''));
@@ -328,12 +347,17 @@
 
   function openBookingSummary(booking, paymentSuccess = false) {
     const payment = booking.payment || {};
+    const fare = booking.fare || {};
+    const rentalFare = Number(fare.rental_fare ?? booking.total_amount);
+    const gstAmount = Number(fare.gst_amount || 0);
+    const totalPayable = Number(fare.total_payable ?? payment.amount ?? booking.total_amount);
+    const rentalDays = Number(fare.rental_days || 1);
     const modal = document.createElement('div'); modal.className = 'checkout-overlay booking-summary-overlay';
     const gender = String(booking.renter_gender || '').replaceAll('_', ' ');
     const documents = payment.status === 'PAID' ? `<div class="result-actions"><a class="user-secondary-action" href="/api/bookings/${booking.id}/documents/receipt/">Download payment receipt</a>${booking.status !== 'CANCELLED' ? `<a class="user-secondary-action" href="/api/bookings/${booking.id}/documents/confirmation/">Download ride ticket</a>` : ''}</div>` : '';
     const handoverStage = payment.status === 'PAID' && booking.status === 'CONFIRMED' ? 'PICKUP' : payment.status === 'PAID' && booking.status === 'HANDED_OVER' ? 'RETURN' : '';
     const handoverAction = handoverStage ? `<section class="handover-code-panel"><h3>${handoverStage === 'PICKUP' ? 'Pickup handover' : 'Return handover'}</h3><p>Generate a short-lived verification code when you are with the shopkeeper. Share it in person to confirm the vehicle condition.</p><button class="user-secondary-action" data-handover-code="${handoverStage}" data-booking-id="${booking.id}">Generate ${handoverStage === 'PICKUP' ? 'pickup' : 'return'} code</button><p class="handover-code-result" aria-live="polite"></p></section>` : '';
-    modal.innerHTML = `<section class="checkout-modal booking-summary-modal" role="dialog" aria-modal="true" aria-labelledby="booking-summary-title"><button class="modal-close" aria-label="Close booking details">×</button><div class="booking-summary-hero"><span>${paymentSuccess ? '✓' : '▣'}</span><p class="user-eyebrow">${paymentSuccess ? 'PAYMENT SUCCESSFUL' : 'BOOKING DETAILS'}</p><h2 id="booking-summary-title">${paymentSuccess ? 'Your ride is booked.' : escape(booking.vehicle)}</h2><p>${paymentSuccess ? 'Payment is confirmed and your reservation is now visible in My bookings.' : 'Complete reservation and payment information.'}</p></div><div class="success-reference"><small>Booking reference</small><strong>RH-${String(booking.id).padStart(6, '0')}</strong><small>${escape(booking.status)} · ${payment.status === 'PAID' ? 'Paid online' : escape(payment.status || 'Payment pending')}</small></div><div class="booking-summary-grid"><section><h3>Ride</h3><p><b>${escape(booking.vehicle)}</b><br>${escape(booking.vehicle_type || 'Vehicle')} · ${escape(booking.shop)}<br>${escape(booking.shop_address || 'Verified shop location')}</p><p><b>Pickup</b><br>${escape(booking.pickup_date)} → ${escape(booking.return_date)}</p></section><section><h3>Payment</h3><p><b>₹${escape(Number(payment.amount || booking.total_amount).toLocaleString('en-IN'))} ${escape(payment.status || 'PENDING')} · ${escape(payment.provider || 'Online payment')}</p><p><b>Transaction reference</b><br>${escape(payment.reference || 'Pending')}</p></section><section><h3>Renter</h3><p><b>${escape(booking.renter_name || app.name)}</b><br>${escape(booking.renter_phone || app.phone)}<br>${escape(booking.renter_email || app.email)}</p><p><b>Age / gender</b><br>${escape(booking.renter_age || '—')} / ${escape(gender || '—')}</p></section></div>${handoverAction}${documents}<p class="booking-identity-note">${booking.identity_verified ? '✓ Identity format verified for this booking.' : ''}</p><button class="user-primary-action" data-close-booking-summary>Done <b>→</b></button></section>`;
+    modal.innerHTML = `<section class="checkout-modal booking-summary-modal" role="dialog" aria-modal="true" aria-labelledby="booking-summary-title"><button class="modal-close" aria-label="Close booking details">×</button><div class="booking-summary-hero"><span>${paymentSuccess ? '✓' : '▣'}</span><p class="user-eyebrow">${paymentSuccess ? 'PAYMENT SUCCESSFUL' : 'BOOKING DETAILS'}</p><h2 id="booking-summary-title">${paymentSuccess ? 'Your ride is booked.' : escape(booking.vehicle)}</h2><p>${paymentSuccess ? 'Payment is confirmed. Fresh receipt and ride-ticket PDFs have been sent to your email and are ready below.' : 'Complete reservation and payment information.'}</p></div><div class="success-reference"><small>Booking reference</small><strong>RH-${String(booking.id).padStart(6, '0')}</strong><small>${escape(booking.status)} · ${payment.status === 'PAID' ? 'Paid online' : escape(payment.status || 'Payment pending')}</small></div><div class="booking-summary-grid"><section><h3>Ride & provider</h3><p><b>${escape(booking.vehicle)}</b><br>${escape(booking.vehicle_type || 'Vehicle')} · ${escape(booking.shop)}<br>${escape(booking.shop_address || 'Verified shop location')}</p><p><b>Pickup / return</b><br>${escape(booking.pickup_date)} → ${escape(booking.return_date)}</p></section><section><h3>Fare & payment</h3><p><b>Rental fare</b><br>₹${escape(rentalFare.toLocaleString('en-IN'))} (${escape(rentalDays)} day${rentalDays === 1 ? '' : 's'})</p><p><b>GST</b><br>₹${escape(gstAmount.toLocaleString('en-IN'))}</p><p><b>Total paid</b><br>₹${escape(totalPayable.toLocaleString('en-IN'))} · ${escape(payment.provider || 'Online payment')}</p><p><b>Transaction reference</b><br>${escape(payment.reference || 'Pending')}</p></section><section><h3>Renter</h3><p><b>${escape(booking.renter_name || app.name)}</b><br>${escape(booking.renter_phone || app.phone)}<br>${escape(booking.renter_email || app.email)}</p><p><b>Age / gender</b><br>${escape(booking.renter_age || '—')} / ${escape(gender || '—')}</p></section></div>${handoverAction}${documents}<p class="booking-identity-note">${booking.identity_verified ? '✓ Identity format verified for this booking.' : ''}</p><button class="user-primary-action" data-close-booking-summary>Done <b>→</b></button></section>`;
     document.body.appendChild(modal); const close = () => modal.remove(); modal.querySelector('.modal-close').addEventListener('click', close); modal.querySelector('[data-close-booking-summary]').addEventListener('click', close); modal.addEventListener('click', event => { if (event.target === modal) close(); });
     modal.querySelector('[data-handover-code]')?.addEventListener('click', async event => {
       const button = event.currentTarget; button.disabled = true;

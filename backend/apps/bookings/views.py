@@ -34,6 +34,11 @@ def _booking_summary(booking):
     """Return a customer-safe complete receipt for history and success views."""
     payment = getattr(booking, "payment", None)
     vehicle = booking.vehicle
+    rental_days = max(1, (booking.return_date - booking.pickup_date).days)
+    # Customer totals are frozen at booking time.  A vehicle's live daily rate
+    # can change later, so never rebuild the paid total from that mutable value.
+    rental_fare = booking.commissionable_base if booking.commissionable_base is not None else booking.total_amount
+    gst_amount = booking.tax_amount if booking.tax_amount is not None else 0
     return {
         "id": booking.id,
         "vehicle": vehicle.display_name,
@@ -45,6 +50,13 @@ def _booking_summary(booking):
         "return_date": booking.return_date.isoformat(),
         "status": booking.status,
         "total_amount": str(booking.total_amount),
+        "fare": {
+            "daily_rate": str(vehicle.daily_rate),
+            "rental_days": rental_days,
+            "rental_fare": str(rental_fare),
+            "gst_amount": str(gst_amount),
+            "total_payable": str(booking.total_amount),
+        },
         "renter_name": booking.renter_full_name,
         "renter_age": booking.renter_age,
         "renter_gender": booking.renter_gender,
