@@ -7,7 +7,6 @@ from decimal import Decimal, InvalidOperation
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, IntegrityError
-from django.db.models import Count, Q
 from django.http import FileResponse, Http404, JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
@@ -16,7 +15,7 @@ from apps.integrations.maps import get_directions_adapter
 
 from apps.accounts.models import ShopkeeperProfile, User
 from apps.bookings.models import Booking
-from apps.bookings.services import active_reservation_filter, expire_checkout_holds
+from apps.bookings.services import active_reservation_count, active_reservation_counts, active_reservation_filter, expire_checkout_holds
 from .validators import normalize_chassis_number, normalize_policy_number, normalize_registration
 from .matching import rank_vehicle_matches
 from django.db import transaction
@@ -352,11 +351,9 @@ def vehicle_detail(request, vehicle_id):
     expire_checkout_holds()
     reserved = None
     if pickup and return_date:
-        reserved = Booking.objects.filter(
-            vehicle=vehicle,
-            pickup_date__lte=return_date,
-            return_date__gte=pickup,
-        ).filter(active_reservation_filter()).count()
+        reserved = active_reservation_count(
+            vehicle_id=vehicle.id, pickup_date=pickup, return_date=return_date,
+        )
     return JsonResponse({"ok": True, "vehicle": _vehicle_payload(vehicle, reserved_units=reserved)})
 
 
@@ -402,22 +399,20 @@ def search_vehicles(request):
             vehicles = vehicles.filter(shopkeeper_id=int(shop_id))
         except ValueError:
             return JsonResponse({"ok": False, "message": "That rental shop could not be identified."}, status=400)
+    reserved_by_vehicle = {}
+    vehicle_rows = list(vehicles)
     if pickup and return_date:
         # Keep unavailable listings in the response so the customer sees a
         # truthful "unavailable for these dates" card instead of a misleading
         # empty search result. The booking transaction repeats this check with
         # a row lock before creating a reservation.
-        vehicles = vehicles.annotate(
-            reserved_units=Count(
-                "bookings",
-                filter=Q(
-                    bookings__pickup_date__lte=return_date,
-                    bookings__return_date__gte=pickup,
-                ) & active_reservation_filter(relation_prefix="bookings__"),
-            )
+        reserved_by_vehicle = active_reservation_counts(
+            vehicle_ids=[vehicle.id for vehicle in vehicle_rows],
+            pickup_date=pickup,
+            return_date=return_date,
         )
     matches = []
-    for vehicle in vehicles:
+    for vehicle in vehicle_rows:
         searchable = f"{vehicle.brand} {vehicle.model_name} {vehicle.shopkeeper.shop_name} {vehicle.shopkeeper.shop_address}".lower()
         if query and query not in searchable:
             continue
@@ -432,7 +427,8 @@ def search_vehicles(request):
                 radius = 15
             if distance > radius:
                 continue
-        matches.append(_vehicle_payload(vehicle, distance, getattr(vehicle, "reserved_units", None)))
+        reserved = reserved_by_vehicle.get(vehicle.id) if pickup and return_date else None
+        matches.append(_vehicle_payload(vehicle, distance, reserved))
     sort_by = request.GET.get("sort", "recommended")
     try:
         matches = rank_vehicle_matches(matches, sort_by)
