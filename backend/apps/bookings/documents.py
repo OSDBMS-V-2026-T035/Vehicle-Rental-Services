@@ -346,22 +346,22 @@ def _confirmation_bytes(booking):
         icon(pos, card_y, kind); text(title, pos + 7 * mm, card_y + 2 * mm, "Helvetica-Bold", 9, INK); text(desc, pos + 7 * mm, card_y - 3 * mm, "Helvetica", 7.2, MUTED)
     page_y = card_y - 29 * mm
     text("Booking date change", x + 8 * mm, page_y, "Helvetica-Bold", 11, INK)
-    text("Request any change with the rental partner before the pickup time.", x + 8 * mm, page_y - 7 * mm, "Helvetica", 8.5, INK)
-    data = [["Change window", "Charges"], [f"Before {_date(booking.pickup_date)}", "Contact rental partner"], ["After pickup time", "Not available"]]
-    table = Table(data, colWidths=[108 * mm, 62 * mm], rowHeights=[8 * mm, 10 * mm, 10 * mm])
+    text("Manage an eligible paid booking from My Bookings before pickup.", x + 8 * mm, page_y - 7 * mm, "Helvetica", 8.5, INK)
+    data = [["Change", "How it works"], ["Reschedule", "Choose a new pickup date; rental length and fare stay the same"], ["Extend", "Pay the saved daily rate for each added rental day"], ["After pickup", "Rescheduling is unavailable; an active ride may be extended if dates are free"]]
+    table = Table(data, colWidths=[35 * mm, 135 * mm], rowHeights=[8 * mm, 12 * mm, 10 * mm, 12 * mm])
     table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E2EAF8")), ("GRID", (0, 0), (-1, -1), .45, LINE), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTNAME", (0, 1), (-1, -1), "Helvetica"), ("FONTSIZE", (0, 0), (-1, -1), 8), ("TEXTCOLOR", (0, 0), (-1, -1), INK), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 7)]))
-    table.wrapOn(pdf, panel_width, 40 * mm); table.drawOn(pdf, x + 5 * mm, page_y - 34 * mm)
-    text("To request a date change, open your booking and contact the rental partner using the displayed phone number.", x + 8 * mm, page_y - 46 * mm, "Helvetica", 8.2, MUTED)
+    table.wrapOn(pdf, panel_width, 48 * mm); table.drawOn(pdf, x + 5 * mm, page_y - 48 * mm)
+    text("Open My Bookings, choose Reschedule or Extend, and follow the date and payment steps shown.", x + 8 * mm, page_y - 60 * mm, "Helvetica", 8.2, MUTED)
     page_footer(2)
 
     # Page 3 - cancellation policy in the requested table-led format.
     page_y = page_shell(3, "Cancellation policy")
-    text("Cancellation charges depend on how close the cancellation is to the rental pickup date.", x + 8 * mm, page_y, "Helvetica", 8.7, INK)
-    policy = [["Cancellation time", "Cancellation charge"], ["7 days or more before pickup", "0%"], ["3 to 6 days before pickup", "25%"], ["1 to 2 days before pickup", "50%"], ["Less than 24 hours before pickup", "100%"]]
+    text("The refund is calculated from captured RideHub payments using calendar days before pickup.", x + 8 * mm, page_y, "Helvetica", 8.7, INK)
+    policy = [["Cancellation time", "Customer refund"], ["5 or more calendar days before pickup", "100%"], ["2 to 4 calendar days before pickup", "80%"], ["1 calendar day before pickup", "50%"], ["On the pickup date", "0%"]]
     policy_table = Table(policy, colWidths=[108 * mm, 62 * mm], rowHeights=[9 * mm] * 5)
     policy_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E2EAF8")), ("BACKGROUND", (1, 1), (1, -1), colors.HexColor("#FAF7F7")), ("GRID", (0, 0), (-1, -1), .5, LINE), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8.2), ("TEXTCOLOR", (0, 0), (-1, -1), INK), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 7)]))
     policy_table.wrapOn(pdf, panel_width, 50 * mm); policy_table.drawOn(pdf, x + 5 * mm, page_y - 55 * mm)
-    notes = ["Cancellation requests must be raised before the scheduled pickup time.", "Refunds, where applicable, are initiated after confirmation from the rental partner.", "The final rental agreement and any documented partner policy take precedence."]
+    notes = ["Cancellation requests must be raised before the scheduled pickup date.", "Eligible refunds are requested from Razorpay to the original payment method; bank processing time can vary.", "Dates in a booking do not contain a pickup time, so this policy uses calendar-day windows."]
     cursor = page_y - 70 * mm
     for note in notes:
         pdf.setFillColor(MUTED); pdf.circle(x + 9 * mm, cursor + 1.5, 1.1, fill=1, stroke=0); text(note, x + 14 * mm, cursor, "Helvetica", 8.4, MUTED); cursor -= 13 * mm
@@ -490,7 +490,11 @@ def download_booking_document(request, booking_id, kind):
     is_shopkeeper = request.user.role == User.Role.SHOPKEEPER and booking.vehicle.shopkeeper.user_id == request.user.id
     if not (is_customer or is_shopkeeper or request.user.role == User.Role.ADMIN):
         raise Http404("Booking not found.")
-    if booking.payment.status != PaymentTransaction.Status.PAID:
+    if booking.payment.status not in {
+        PaymentTransaction.Status.PAID,
+        PaymentTransaction.Status.PARTIALLY_REFUNDED,
+        PaymentTransaction.Status.REFUNDED,
+    }:
         raise Http404("This document is available after confirmed payment.")
     if kind == "confirmation" and booking.status == Booking.Status.CANCELLED:
         raise Http404("Ride confirmation is not available for a cancelled booking.")

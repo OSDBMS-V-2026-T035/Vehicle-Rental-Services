@@ -211,7 +211,7 @@
     const money = value => `₹${Number(value || 0).toLocaleString('en-IN')}`;
     const gender = String(payload.gender || '').replaceAll('_', ' ');
     const shell = modal.querySelector('.checkout-modal');
-    shell.innerHTML = `<button class="modal-close" data-back-to-renter aria-label="Back to renter details">←</button><p class="user-eyebrow">REVIEW BEFORE PAYMENT</p><h2>Confirm your fare and ride details</h2><p class="modal-subtitle">Please review the complete booking before opening the secure payment page.</p><div class="checkout-review-grid"><section><h3>Ride & provider</h3><p><b>${escape(vehicle.name)}</b><br>${escape(vehicle.type)} · ${escape(vehicle.fuel_type || 'Fuel details unavailable')} · ${escape(vehicle.seating_capacity)} seats</p><p><b>${escape(vehicle.shop)}</b><br>${escape(vehicle.address || 'Verified rental location')}</p><p><b>Rental dates</b><br>${escape(state.pickup)} to ${escape(state.returnDate)} · ${rentalDays} day${rentalDays === 1 ? '' : 's'}</p></section><section><h3>Fare breakdown</h3><dl class="fare-breakdown"><div><dt>Rental fare (${rentalDays} × ${money(vehicle.daily_rate)})</dt><dd>${money(rentalFare)}</dd></div><div><dt>GST</dt><dd>₹0</dd></div><div class="fare-total"><dt>Total payable</dt><dd>${money(rentalFare)}</dd></div></dl><small>GST is currently not configured for this booking, so no tax has been added.</small></section><section><h3>Renter details</h3><p><b>${escape(payload.full_name)}</b><br>${escape(payload.phone)}<br>${escape(payload.email)}</p><p><b>Age / gender</b><br>${escape(payload.age)} / ${escape(gender || '—')}</p></section></div><p id="checkout-review-message" class="checkout-message" role="status"></p><button class="user-primary-action" data-confirm-checkout>Confirm details & continue to payment <b>→</b></button>`;
+    shell.innerHTML = `<button class="modal-close" data-back-to-renter aria-label="Back to renter details">←</button><p class="user-eyebrow">REVIEW BEFORE PAYMENT</p><h2>Confirm your fare and ride details</h2><p class="modal-subtitle">Please review the complete booking before opening the secure payment page.</p><div class="checkout-review-grid"><section><h3>Ride & provider</h3><p><b>${escape(vehicle.name)}</b><br>${escape(vehicle.type)} · ${escape(vehicle.fuel_type || 'Fuel details unavailable')} · ${escape(vehicle.seating_capacity)} seats</p><p><b>${escape(vehicle.shop)}</b><br>${escape(vehicle.address || 'Verified rental location')}</p><p><b>Rental dates</b><br>${escape(state.pickup)} to ${escape(state.returnDate)} · ${rentalDays} day${rentalDays === 1 ? '' : 's'}</p></section><section><h3>Fare breakdown</h3><dl class="fare-breakdown"><div><dt>Rental fare (${rentalDays} × ${money(vehicle.daily_rate)})</dt><dd>${money(rentalFare)}</dd></div><div><dt>GST</dt><dd>₹0</dd></div><div class="fare-total"><dt>Total payable</dt><dd>${money(rentalFare)}</dd></div></dl><small>GST is currently not configured for this booking, so no tax has been added.</small></section><section><h3>Renter details</h3><p><b>${escape(payload.full_name)}</b><br>${escape(payload.phone)}<br>${escape(payload.email)}</p><p><b>Age / gender</b><br>${escape(payload.age)} / ${escape(gender || '—')}</p></section></div><section class="cancellation-policy-note" aria-label="Cancellation refund policy"><strong>Cancellation refund</strong><div class="policy-tier-list"><span><b>100%</b> · 5+ calendar days before pickup</span><span><b>80%</b> · 2–4 calendar days before pickup</span><span><b>50%</b> · 1 calendar day before pickup</span><span><b>0%</b> · on the pickup date</span></div><small>Refunds go to the original payment method. Pickup time is not collected, so refund windows use calendar days.</small></section><p id="checkout-review-message" class="checkout-message" role="status"></p><button class="user-primary-action" data-confirm-checkout>Confirm details & continue to payment <b>→</b></button>`;
     shell.querySelector('[data-back-to-renter]').addEventListener('click', () => openCheckout(vehicle, modal === content));
     shell.querySelector('[data-confirm-checkout]').addEventListener('click', () => submitCheckout(payload, modal));
   }
@@ -340,9 +340,175 @@
     } catch (error) { message.textContent = error.message; message.className = 'checkout-message error'; button.disabled = false; }
   }
 
+  function cancellationPolicyMarkup(policy = {}) {
+    const tiers = policy.tiers || [
+      { label: '5 or more calendar days before pickup', percent: 100 },
+      { label: '2–4 calendar days before pickup', percent: 80 },
+      { label: '1 calendar day before pickup', percent: 50 },
+      { label: 'On the pickup date', percent: 0 },
+    ];
+    return `<div class="policy-tier-list">${tiers.map(tier => `<span><b>${escape(tier.percent)}%</b> · ${escape(tier.label)}</span>`).join('')}</div><small class="policy-footnote">Percent applies to each payment balance still available for refund. Pickup time is not collected, so the policy uses calendar-day windows.</small>`;
+  }
+
+  function lifecycleOverlay(title, body) {
+    const overlay = document.createElement('div');
+    overlay.className = 'checkout-overlay booking-lifecycle-overlay';
+    overlay.innerHTML = `<section class="checkout-modal booking-lifecycle-modal" role="dialog" aria-modal="true"><button class="modal-close" type="button" aria-label="Close">×</button><p class="user-eyebrow">BOOKING OPTIONS</p><h2>${escape(title)}</h2>${body}</section>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('.modal-close').addEventListener('click', close);
+    overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+    return { overlay, close };
+  }
+
+  async function refreshBookingActions(overlay, parentModal) {
+    overlay?.remove();
+    parentModal?.remove();
+    await renderBookings();
+  }
+
+  function openCancellationDialog(booking, parentModal) {
+    const policy = booking.cancellation_policy || {};
+    const estimate = Number(policy.estimated_refund || 0);
+    const dialog = lifecycleOverlay('Cancel this booking?', `<p class="modal-subtitle">${escape(booking.vehicle)} · ${escape(booking.pickup_date)} to ${escape(booking.return_date)}</p><div class="cancellation-policy-note"><strong>Estimated refund: ₹${escape(estimate.toLocaleString('en-IN'))} (${escape(policy.percent || 0)}%)</strong>${cancellationPolicyMarkup(policy)}<small>Razorpay sends eligible refunds to the original payment method. The bank may take additional time to show the credit.</small></div><p class="checkout-message" data-action-message role="status"></p><div class="booking-lifecycle-buttons"><button class="user-secondary-action" type="button" data-keep-booking>Keep booking</button><button class="user-primary-action booking-cancel-action" type="button" data-confirm-cancel>Confirm cancellation</button></div>`);
+    dialog.overlay.querySelector('[data-keep-booking]').addEventListener('click', dialog.close);
+    dialog.overlay.querySelector('[data-confirm-cancel]').addEventListener('click', async event => {
+      const button = event.currentTarget;
+      const message = dialog.overlay.querySelector('[data-action-message]');
+      button.disabled = true;
+      message.textContent = 'Requesting the refund securely…';
+      try {
+        const result = await request(`/api/bookings/${booking.id}/cancel/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Cancelled by customer' }) });
+        showToast(result.message);
+        await refreshBookingActions(dialog.overlay, parentModal);
+      } catch (error) {
+        message.textContent = error.message;
+        message.classList.add('error');
+        button.disabled = false;
+      }
+    });
+  }
+
+  function openRescheduleDialog(booking, parentModal) {
+    const dialog = lifecycleOverlay('Choose a new pickup date', `<p class="modal-subtitle">The same rental length and fare are kept. Your new dates must have available inventory.</p><form class="checkout-form" data-reschedule-form><label>New pickup date<input name="pickup_date" type="date" min="${iso(today)}" value="${escape(booking.pickup_date)}" required></label><div class="checkout-summary"><span>Current booking<br>${escape(booking.pickup_date)} → ${escape(booking.return_date)}</span><strong>No fare change</strong></div><p class="checkout-message" data-action-message role="status"></p><button class="user-primary-action" type="submit">Save new dates <b>→</b></button></form>`);
+    dialog.overlay.querySelector('[data-reschedule-form]').addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      const message = form.querySelector('[data-action-message]');
+      button.disabled = true;
+      message.textContent = 'Checking availability…';
+      try {
+        const result = await request(`/api/bookings/${booking.id}/reschedule/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pickup_date: new FormData(form).get('pickup_date') }) });
+        showToast(result.message);
+        await refreshBookingActions(dialog.overlay, parentModal);
+      } catch (error) {
+        message.textContent = error.message;
+        message.classList.add('error');
+        button.disabled = false;
+      }
+    });
+  }
+
+  function openExtensionDialog(booking, parentModal) {
+    const oldReturn = new Date(`${booking.return_date}T00:00:00`);
+    const latestReturn = new Date(`${booking.pickup_date}T00:00:00`);
+    latestReturn.setDate(latestReturn.getDate() + 7);
+    const rate = Number(booking.extension_daily_rate || booking.fare?.daily_rate || 0);
+    const dialog = lifecycleOverlay('Extend your rental', `<p class="modal-subtitle">Add days to the current booking. The saved daily rate is used, and the extra dates must be available.</p><form class="checkout-form" data-extension-form><label>New return date<input name="return_date" type="date" min="${iso(new Date(oldReturn.getTime() + 86400000))}" max="${iso(latestReturn)}" required></label><div class="checkout-summary"><span>Additional days<br><small data-extension-days>Choose a return date</small></span><strong data-extension-amount>₹0</strong></div><p class="checkout-message" data-action-message role="status"></p><button class="user-primary-action" type="submit">Continue to payment <b>→</b></button></form>`);
+    const form = dialog.overlay.querySelector('[data-extension-form]');
+    const returnInput = form.querySelector('[name="return_date"]');
+    const dayLabel = form.querySelector('[data-extension-days]');
+    const amountLabel = form.querySelector('[data-extension-amount]');
+    const message = form.querySelector('[data-action-message]');
+    const quote = () => {
+      if (!returnInput.value) { dayLabel.textContent = 'Choose a return date'; amountLabel.textContent = '₹0'; return; }
+      const days = Math.round((new Date(`${returnInput.value}T00:00:00`) - oldReturn) / 86400000);
+      dayLabel.textContent = `${days} added day${days === 1 ? '' : 's'} × ₹${rate.toLocaleString('en-IN')}/day`;
+      amountLabel.textContent = `₹${(rate * days).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+    returnInput.addEventListener('change', quote);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = form.querySelector('button[type="submit"]');
+      button.disabled = true;
+      message.textContent = 'Holding the extra dates…';
+      try {
+        const order = await request(`/api/bookings/${booking.id}/extend/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ return_date: returnInput.value }) });
+        await openExtensionPayment(order, booking, dialog, parentModal);
+      } catch (error) {
+        message.textContent = error.message;
+        message.classList.add('error');
+        button.disabled = false;
+      }
+    });
+  }
+
+  async function openExtensionPayment(order, booking, extensionDialog, parentModal) {
+    const amount = (Number(order.amount) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const paymentDialog = lifecycleOverlay('Confirm extension payment', `<p class="modal-subtitle">${escape(booking.vehicle)} · new return date ${escape(order.to_return || '')}</p><div class="checkout-summary"><span>Additional rental charge<br><small>Razorpay · ${escape(order.currency || 'INR')}</small></span><strong>₹${escape(amount)}</strong></div><p class="policy-footnote">Dates update only after Razorpay confirms this payment. The extra dates stay held for 10 minutes.</p><p class="checkout-message" data-extension-message role="status"></p><button class="user-primary-action" type="button" data-pay-extension>Pay ₹${escape(amount)} securely <b>→</b></button>`);
+    const payButton = paymentDialog.overlay.querySelector('[data-pay-extension]');
+    const message = paymentDialog.overlay.querySelector('[data-extension-message]');
+    let finished = false;
+    const recover = async () => {
+      try {
+        const result = await request(`/api/payments/razorpay/extension/reconcile/${order.change_id}/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        if (result.status === 'PAID') {
+          finished = true;
+          showToast('Extension paid and confirmed.');
+          await refreshBookingActions(paymentDialog.overlay, parentModal);
+          extensionDialog.close();
+          return true;
+        }
+      } catch (_) { /* A later retry remains available while the hold is active. */ }
+      return false;
+    };
+    payButton.addEventListener('click', async () => {
+      payButton.disabled = true;
+      message.textContent = 'Opening secure payment…';
+      try {
+        await loadRazorpayCheckout();
+        const checkout = new window.Razorpay({
+          key: order.key_id, amount: order.amount, currency: order.currency, order_id: order.order_id,
+          name: 'RideHub', description: order.description, prefill: order.prefill,
+          theme: { color: '#2879c8' }, redirect: false, retry: { enabled: true },
+          modal: { backdropclose: false, escape: false, confirm_close: true, ondismiss: async () => {
+            if (!finished && !(await recover())) { message.textContent = 'Payment window closed. Your date hold is still active; you can retry securely here.'; payButton.disabled = false; }
+          } },
+          handler: async response => {
+            try {
+              const result = await request('/api/payments/razorpay/extension/verify/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...response, change_id: order.change_id }) });
+              finished = true;
+              showToast(result.message || 'Extension paid and confirmed.');
+              await refreshBookingActions(paymentDialog.overlay, parentModal);
+              extensionDialog.close();
+            } catch (error) {
+              message.textContent = error.message;
+              message.classList.add('error');
+              payButton.disabled = false;
+            }
+          },
+        });
+        checkout.on('payment.failed', async failure => {
+          if (!(await recover())) {
+            message.textContent = failure?.error?.description || 'Payment was not completed. Retry while the date hold is active.';
+            message.classList.add('error');
+            payButton.disabled = false;
+          }
+        });
+        checkout.open();
+        message.textContent = 'Complete the payment in the Razorpay window.';
+      } catch (error) {
+        message.textContent = error.message;
+        message.classList.add('error');
+        payButton.disabled = false;
+      }
+    });
+  }
+
   async function renderBookings() {
     content.innerHTML = '<div class="user-page-heading"><p class="user-eyebrow">RESERVATION HISTORY</p><h1>My bookings</h1><p>Keep every ride, date and shop detail in one clear timeline.</p></div><div class="admin-toolbar"><label><span>Search bookings</span><input id="booking-search" type="search" placeholder="Booking ID, vehicle, shop, date or payment ID"></label></div><div id="booking-list" class="booking-list"><div class="results-loading"><span></span><span></span><span></span>Loading your bookings</div></div>';
-    try { const data = await request('/api/bookings/history/'); const list = document.querySelector('#booking-list'); list.innerHTML = data.bookings.length ? data.bookings.map(booking => { const paid = booking.payment?.status === 'PAID'; const ticket = paid && booking.status !== 'CANCELLED'; const searchable = [booking.id, booking.vehicle, booking.vehicle_type, booking.shop, booking.shop_address, booking.pickup_date, booking.return_date, booking.status, booking.total_amount, booking.renter_name, booking.renter_email, booking.renter_phone, booking.payment?.reference, booking.payment?.provider].join(' '); return `<article class="booking-card" data-booking-search data-search="${escape(searchable)}"><div class="booking-card-icon">▣</div><div class="booking-card-main"><div class="booking-card-title"><div><h3>${escape(booking.vehicle)}</h3><p>${escape(booking.shop)} · RH-${String(booking.id).padStart(6, '0')}</p></div><span class="booking-status status-${booking.status.toLowerCase()}">${escape(booking.status)}</span></div><div class="booking-meta"><span>Pickup <strong>${escape(booking.pickup_date)}</strong></span><span>Return <strong>${escape(booking.return_date)}</strong></span><span>Total <strong>₹${escape(Number(booking.total_amount).toLocaleString('en-IN'))}</strong></span></div><div class="result-actions"><button class="user-secondary-action" data-view-booking="${booking.id}">View details</button>${paid ? `<a class="user-secondary-action" href="/api/bookings/${booking.id}/documents/receipt/">Payment receipt</a>` : ''}${ticket ? `<a class="user-secondary-action" href="/api/bookings/${booking.id}/documents/confirmation/">Ride ticket</a>` : ''}<small class="verified-note">${booking.payment?.status === 'PAID' ? '✓ Paid online — documents ready' : `Payment: ${escape(booking.payment?.status || 'Cancelled')}`}</small></div></div></article>`; }).join('') : '<div class="results-empty"><span>▣</span><strong>No bookings yet</strong><p>Your paid reservations will appear here after online checkout.</p><button class="user-secondary-action" data-user-page="rides">Find a ride</button></div>'; document.querySelector('#booking-search')?.addEventListener('input', event => { const term = event.currentTarget.value.trim().toLowerCase(); document.querySelectorAll('[data-booking-search]').forEach(card => { card.hidden = !!term && !card.dataset.search.toLowerCase().includes(term); }); }); window.__ridehubBookings = data.bookings; const successId = new URLSearchParams(window.location.search).get('success') || sessionStorage.getItem('ridehub-payment-success-booking'); const successBooking = data.bookings.find(item => String(item.id) === String(successId)); if (successBooking) { sessionStorage.removeItem('ridehub-payment-success-booking'); window.history.replaceState({}, '', '/user-portal/bookings/'); openBookingSummary(successBooking, true); } } catch (error) { document.querySelector('#booking-list').innerHTML = `<div class="results-empty"><strong>Could not load bookings</strong><p>${escape(error.message)}</p></div>`; }
+    try { const data = await request('/api/bookings/history/'); const list = document.querySelector('#booking-list'); list.innerHTML = data.bookings.length ? data.bookings.map(booking => { const paid = ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(booking.payment?.status); const ticket = paid && booking.status !== 'CANCELLED'; const searchable = [booking.id, booking.vehicle, booking.vehicle_type, booking.shop, booking.shop_address, booking.pickup_date, booking.return_date, booking.status, booking.total_amount, booking.renter_name, booking.renter_email, booking.renter_phone, booking.payment?.reference, booking.payment?.provider].join(' '); return `<article class="booking-card" data-booking-search data-search="${escape(searchable)}"><div class="booking-card-icon">▣</div><div class="booking-card-main"><div class="booking-card-title"><div><h3>${escape(booking.vehicle)}</h3><p>${escape(booking.shop)} · RH-${String(booking.id).padStart(6, '0')}</p></div><span class="booking-status status-${booking.status.toLowerCase()}">${escape(booking.status)}</span></div><div class="booking-meta"><span>Pickup <strong>${escape(booking.pickup_date)}</strong></span><span>Return <strong>${escape(booking.return_date)}</strong></span><span>Total <strong>₹${escape(Number(booking.total_amount).toLocaleString('en-IN'))}</strong></span></div><div class="result-actions"><button class="user-secondary-action" data-view-booking="${booking.id}">View details</button>${paid ? `<a class="user-secondary-action" href="/api/bookings/${booking.id}/documents/receipt/">Payment receipt</a>` : ''}${ticket ? `<a class="user-secondary-action" href="/api/bookings/${booking.id}/documents/confirmation/">Ride ticket</a>` : ''}${booking.can_cancel ? `<button class="user-secondary-action" data-booking-action="cancel" data-booking-id="${booking.id}">Cancel</button>` : ''}${booking.can_reschedule ? `<button class="user-secondary-action" data-booking-action="reschedule" data-booking-id="${booking.id}">Reschedule</button>` : ''}${booking.can_extend ? `<button class="user-secondary-action" data-booking-action="extend" data-booking-id="${booking.id}">Extend</button>` : ''}<small class="verified-note">${paid ? '✓ Payment recorded — documents ready' : `Payment: ${escape(booking.payment?.status || 'Cancelled')}`}</small></div></div></article>`; }).join('') : '<div class="results-empty"><span>▣</span><strong>No bookings yet</strong><p>Your paid reservations will appear here after online checkout.</p><button class="user-secondary-action" data-user-page="rides">Find a ride</button></div>'; document.querySelector('#booking-search')?.addEventListener('input', event => { const term = event.currentTarget.value.trim().toLowerCase(); document.querySelectorAll('[data-booking-search]').forEach(card => { card.hidden = !!term && !card.dataset.search.toLowerCase().includes(term); }); }); window.__ridehubBookings = data.bookings; const successId = new URLSearchParams(window.location.search).get('success') || sessionStorage.getItem('ridehub-payment-success-booking'); const successBooking = data.bookings.find(item => String(item.id) === String(successId)); if (successBooking) { sessionStorage.removeItem('ridehub-payment-success-booking'); window.history.replaceState({}, '', '/user-portal/bookings/'); openBookingSummary(successBooking, true); } } catch (error) { document.querySelector('#booking-list').innerHTML = `<div class="results-empty"><strong>Could not load bookings</strong><p>${escape(error.message)}</p></div>`; }
   }
 
   function openBookingSummary(booking, paymentSuccess = false) {
@@ -354,10 +520,11 @@
     const rentalDays = Number(fare.rental_days || 1);
     const modal = document.createElement('div'); modal.className = 'checkout-overlay booking-summary-overlay';
     const gender = String(booking.renter_gender || '').replaceAll('_', ' ');
-    const documents = payment.status === 'PAID' ? `<div class="result-actions"><a class="user-secondary-action" href="/api/bookings/${booking.id}/documents/receipt/">Download payment receipt</a>${booking.status !== 'CANCELLED' ? `<a class="user-secondary-action" href="/api/bookings/${booking.id}/documents/confirmation/">Download ride ticket</a>` : ''}</div>` : '';
-    const handoverStage = payment.status === 'PAID' && booking.status === 'CONFIRMED' ? 'PICKUP' : payment.status === 'PAID' && booking.status === 'HANDED_OVER' ? 'RETURN' : '';
+    const paymentCaptured = ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(payment.status);
+    const documents = paymentCaptured ? `<div class="result-actions"><a class="user-secondary-action" href="/api/bookings/${booking.id}/documents/receipt/">Download payment receipt</a>${booking.status !== 'CANCELLED' ? `<a class="user-secondary-action" href="/api/bookings/${booking.id}/documents/confirmation/">Download ride ticket</a>` : ''}</div>` : '';
+    const handoverStage = paymentCaptured && booking.status === 'CONFIRMED' ? 'PICKUP' : paymentCaptured && booking.status === 'HANDED_OVER' ? 'RETURN' : '';
     const handoverAction = handoverStage ? `<section class="handover-code-panel"><h3>${handoverStage === 'PICKUP' ? 'Pickup handover' : 'Return handover'}</h3><p>Generate a short-lived verification code when you are with the shopkeeper. Share it in person to confirm the vehicle condition.</p><button class="user-secondary-action" data-handover-code="${handoverStage}" data-booking-id="${booking.id}">Generate ${handoverStage === 'PICKUP' ? 'pickup' : 'return'} code</button><p class="handover-code-result" aria-live="polite"></p></section>` : '';
-    modal.innerHTML = `<section class="checkout-modal booking-summary-modal" role="dialog" aria-modal="true" aria-labelledby="booking-summary-title"><button class="modal-close" aria-label="Close booking details">×</button><div class="booking-summary-hero"><span>${paymentSuccess ? '✓' : '▣'}</span><p class="user-eyebrow">${paymentSuccess ? 'PAYMENT SUCCESSFUL' : 'BOOKING DETAILS'}</p><h2 id="booking-summary-title">${paymentSuccess ? 'Your ride is booked.' : escape(booking.vehicle)}</h2><p>${paymentSuccess ? 'Payment is confirmed. Fresh receipt and ride-ticket PDFs have been sent to your email and are ready below.' : 'Complete reservation and payment information.'}</p></div><div class="success-reference"><small>Booking reference</small><strong>RH-${String(booking.id).padStart(6, '0')}</strong><small>${escape(booking.status)} · ${payment.status === 'PAID' ? 'Paid online' : escape(payment.status || 'Payment pending')}</small></div><div class="booking-summary-grid"><section><h3>Ride & provider</h3><p><b>${escape(booking.vehicle)}</b><br>${escape(booking.vehicle_type || 'Vehicle')} · ${escape(booking.shop)}<br>${escape(booking.shop_address || 'Verified shop location')}</p><p><b>Pickup / return</b><br>${escape(booking.pickup_date)} → ${escape(booking.return_date)}</p></section><section><h3>Fare & payment</h3><p><b>Rental fare</b><br>₹${escape(rentalFare.toLocaleString('en-IN'))} (${escape(rentalDays)} day${rentalDays === 1 ? '' : 's'})</p><p><b>GST</b><br>₹${escape(gstAmount.toLocaleString('en-IN'))}</p><p><b>Total paid</b><br>₹${escape(totalPayable.toLocaleString('en-IN'))} · ${escape(payment.provider || 'Online payment')}</p><p><b>Transaction reference</b><br>${escape(payment.reference || 'Pending')}</p></section><section><h3>Renter</h3><p><b>${escape(booking.renter_name || app.name)}</b><br>${escape(booking.renter_phone || app.phone)}<br>${escape(booking.renter_email || app.email)}</p><p><b>Age / gender</b><br>${escape(booking.renter_age || '—')} / ${escape(gender || '—')}</p></section></div>${handoverAction}${documents}<p class="booking-identity-note">${booking.identity_verified ? '✓ Identity format verified for this booking.' : ''}</p><button class="user-primary-action" data-close-booking-summary>Done <b>→</b></button></section>`;
+    modal.innerHTML = `<section class="checkout-modal booking-summary-modal" role="dialog" aria-modal="true" aria-labelledby="booking-summary-title"><button class="modal-close" aria-label="Close booking details">×</button><div class="booking-summary-hero"><span>${paymentSuccess ? '✓' : '▣'}</span><p class="user-eyebrow">${paymentSuccess ? 'PAYMENT SUCCESSFUL' : 'BOOKING DETAILS'}</p><h2 id="booking-summary-title">${paymentSuccess ? 'Your ride is booked.' : escape(booking.vehicle)}</h2><p>${paymentSuccess ? 'Payment is confirmed. Fresh receipt and ride-ticket PDFs have been sent to your email and are ready below.' : 'Complete reservation and payment information.'}</p></div><div class="success-reference"><small>Booking reference</small><strong>RH-${String(booking.id).padStart(6, '0')}</strong><small>${escape(booking.status)} · ${paymentCaptured ? 'Paid online' : escape(payment.status || 'Payment pending')}</small></div><div class="booking-summary-grid"><section><h3>Ride & provider</h3><p><b>${escape(booking.vehicle)}</b><br>${escape(booking.vehicle_type || 'Vehicle')} · ${escape(booking.shop)}<br>${escape(booking.shop_address || 'Verified shop location')}</p><p><b>Pickup / return</b><br>${escape(booking.pickup_date)} → ${escape(booking.return_date)}</p></section><section><h3>Fare & payment</h3><p><b>Rental fare</b><br>₹${escape(rentalFare.toLocaleString('en-IN'))} (${escape(rentalDays)} day${rentalDays === 1 ? '' : 's'})</p><p><b>GST</b><br>₹${escape(gstAmount.toLocaleString('en-IN'))}</p><p><b>Total charges</b><br>₹${escape(totalPayable.toLocaleString('en-IN'))} · ${escape(payment.provider || 'Online payment')}${Number(payment.refunded_amount || 0) ? ` · ₹${escape(Number(payment.refunded_amount).toLocaleString('en-IN'))} refunded` : ''}</p><p><b>Transaction reference</b><br>${escape(payment.reference || 'Pending')}</p></section><section><h3>Renter</h3><p><b>${escape(booking.renter_name || app.name)}</b><br>${escape(booking.renter_phone || app.phone)}<br>${escape(booking.renter_email || app.email)}</p><p><b>Age / gender</b><br>${escape(booking.renter_age || '—')} / ${escape(gender || '—')}</p></section></div>${handoverAction}${booking.can_cancel || booking.can_reschedule || booking.can_extend ? `<section class="booking-change-actions"><h3>Manage this booking</h3><p>Change dates or cancel before pickup. Any extension price is shown before payment.</p><div class="result-actions">${booking.can_reschedule ? `<button class="user-secondary-action" data-booking-action="reschedule" data-booking-id="${booking.id}">Reschedule</button>` : ''}${booking.can_extend ? `<button class="user-secondary-action" data-booking-action="extend" data-booking-id="${booking.id}">Extend rental</button>` : ''}${booking.can_cancel ? `<button class="user-secondary-action booking-cancel-action" data-booking-action="cancel" data-booking-id="${booking.id}">Cancel booking</button>` : ''}</div>${booking.can_cancel ? cancellationPolicyMarkup(booking.cancellation_policy) : ''}</section>` : ''}${booking.changes?.length ? `<section class="booking-change-history"><h3>Booking updates</h3>${booking.changes.map(change => `<p><strong>${escape(change.kind)}</strong> · ${escape(change.status)}${change.kind === 'CANCEL' ? ` · ${escape(change.refund_percent)}% refund · ₹${escape(Number(change.refunded_amount || 0).toLocaleString('en-IN'))} ${escape(change.refund_status || '')}` : change.kind === 'EXTEND' ? ` · Return ${escape(change.to_return || '')} · ₹${escape(Number(change.amount || 0).toLocaleString('en-IN'))}` : change.to_pickup ? ` · Pickup ${escape(change.to_pickup)}` : ''}</p>`).join('')}</section>` : ''}${documents}<p class="booking-identity-note">${booking.identity_verified ? '✓ Identity format verified for this booking.' : ''}</p><button class="user-primary-action" data-close-booking-summary>Done <b>→</b></button></section>`;
     document.body.appendChild(modal); const close = () => modal.remove(); modal.querySelector('.modal-close').addEventListener('click', close); modal.querySelector('[data-close-booking-summary]').addEventListener('click', close); modal.addEventListener('click', event => { if (event.target === modal) close(); });
     modal.querySelector('[data-handover-code]')?.addEventListener('click', async event => {
       const button = event.currentTarget; button.disabled = true;
@@ -378,7 +545,7 @@
   }
 
   function go(page, navigate = true) { const valid = Object.keys(labels); const target = valid.includes(page) ? page : 'overview'; if (navigate && target !== state.page) { window.location.assign(target === 'overview' ? '/user-portal/' : `/user-portal/${target}/`); return; } state.page = target; crumb.textContent = labels[target] || 'Overview'; renderNav(); document.querySelector('#portal-sidebar').classList.remove('open'); if (target === 'overview') renderOverview(); else if (target === 'rides') renderRides(); else if (target === 'shops') renderShops(); else if (target === 'bookings') renderBookings(); else if (target === 'checkout') content.innerHTML = '<div class="loading-block">Preparing your secure checkout…</div>'; else renderProfile(); window.scrollTo({ top: 0, behavior: 'auto' }); }
-  document.addEventListener('click', event => { const page = event.target.closest('[data-user-page]')?.dataset.userPage; if (page) go(page); const shopId = event.target.closest('[data-open-shop]')?.dataset.openShop; if (shopId) { const shop = (window.__ridehubShops || []).find(item => String(item.id) === String(shopId)); if (shop) openShopListings(shop); } const detailId = event.target.closest('[data-vehicle-details]')?.dataset.vehicleDetails; if (detailId) { const vehicle = state.vehicles.find(item => String(item.id) === String(detailId)); if (vehicle) openVehicleDetails(vehicle); } const viewBooking = event.target.closest('[data-view-booking]')?.dataset.viewBooking; if (viewBooking) { const b=(window.__ridehubBookings||[]).find(item=>String(item.id)===String(viewBooking)); if (b) openBookingSummary(b); } });
+  document.addEventListener('click', event => { const page = event.target.closest('[data-user-page]')?.dataset.userPage; if (page) go(page); const shopId = event.target.closest('[data-open-shop]')?.dataset.openShop; if (shopId) { const shop = (window.__ridehubShops || []).find(item => String(item.id) === String(shopId)); if (shop) openShopListings(shop); } const detailId = event.target.closest('[data-vehicle-details]')?.dataset.vehicleDetails; if (detailId) { const vehicle = state.vehicles.find(item => String(item.id) === String(detailId)); if (vehicle) openVehicleDetails(vehicle); } const viewBooking = event.target.closest('[data-view-booking]')?.dataset.viewBooking; if (viewBooking) { const b=(window.__ridehubBookings||[]).find(item=>String(item.id)===String(viewBooking)); if (b) openBookingSummary(b); } const lifecycleButton = event.target.closest('[data-booking-action]'); if (lifecycleButton) { const booking = (window.__ridehubBookings || []).find(item => String(item.id) === String(lifecycleButton.dataset.bookingId)); if (booking) { const action = lifecycleButton.dataset.bookingAction; const parentModal = lifecycleButton.closest('.booking-summary-overlay'); if (action === 'cancel') openCancellationDialog(booking, parentModal); if (action === 'reschedule') openRescheduleDialog(booking, parentModal); if (action === 'extend') openExtensionDialog(booking, parentModal); } } });
   document.querySelector('#mobile-menu').addEventListener('click', () => document.querySelector('#portal-sidebar').classList.toggle('open'));
   document.querySelector('#profile-shortcut').addEventListener('click', () => go('profile'));
   document.querySelector('#logout-button').addEventListener('click', async () => { try { await request('/api/auth/logout/', { method: 'POST' }); } finally { window.location.assign('/auth/'); } });

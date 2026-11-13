@@ -141,3 +141,21 @@
 .handover-code-panel { margin:14px 0; padding:16px; border:1px solid var(--user-line); border-radius:14px; background:linear-gradient(135deg,rgba(27,119,187,.13),rgba(11,33,52,.6)); }.handover-code-panel h3 { margin:0 0 6px; color:#dceeff; font-size:14px; }.handover-code-panel p { margin:0 0 12px; color:var(--user-muted); font-size:11px; line-height:1.5; }.handover-code-result { min-height:20px; margin:10px 0 0!important; color:#9fdfff!important; }.handover-code-result strong { display:inline-block; margin:0 5px; padding:4px 9px; border:1px solid rgba(81,192,241,.35); border-radius:7px; color:#fff; font-size:16px; letter-spacing:.2em; }
 .payment-test-note { min-height:15px; margin:0 0 14px; color:#8fdccc; font-size:10px; line-height:1.45; text-align:center; }
 @media(max-width:620px){.booking-summary-grid{grid-template-columns:1fr}.booking-summary-modal{padding:23px}}
+
+/* Booking lifecycle actions: compact, clear and comfortable on small screens. */
+.cancellation-policy-note,.booking-change-actions,.booking-change-history { margin:14px 0; padding:15px; border:1px solid rgba(113,187,247,.22); border-radius:12px; background:linear-gradient(135deg,rgba(18,49,76,.64),rgba(8,22,37,.76)); }
+.cancellation-policy-note > strong,.booking-change-actions h3,.booking-change-history h3 { display:block; margin:0 0 9px; color:#e9f5ff; font-size:12px; }
+.policy-tier-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin:8px 0; }
+.policy-tier-list span { padding:8px 9px; border:1px solid rgba(115,166,212,.17); border-radius:8px; color:#b7cadd; background:rgba(3,14,25,.42); font-size:10px; line-height:1.4; }
+.policy-tier-list b { color:#9bd7ff; font-size:11px; }
+.cancellation-policy-note > small,.policy-footnote { display:block; margin-top:9px; color:var(--user-muted); font-size:10px; line-height:1.5; }
+.booking-change-actions > p { margin:0 0 10px; color:var(--user-muted); font-size:10px; }
+.booking-change-history p { margin:8px 0 0; color:var(--user-muted); font-size:10px; line-height:1.5; }
+.booking-change-history p strong { color:#e8f5ff; }
+.booking-lifecycle-overlay { z-index:40; }
+.booking-lifecycle-modal { width:min(520px,100%); }
+.booking-lifecycle-modal h2 { margin:0; }
+.booking-lifecycle-buttons { display:flex; justify-content:flex-end; gap:9px; margin-top:12px; }
+.booking-cancel-action { border-color:rgba(238,119,135,.38)!important; color:#ffc1cb!important; background:rgba(150,48,65,.18)!important; }
+.booking-cancel-action:hover { border-color:rgba(255,135,149,.7)!important; color:#fff!important; background:rgba(150,48,65,.3)!important; }
+@media(max-width:520px){.policy-tier-list{grid-template-columns:1fr}.booking-lifecycle-buttons{display:grid;grid-template-columns:1fr}.booking-change-actions .result-actions{flex-wrap:wrap}}
