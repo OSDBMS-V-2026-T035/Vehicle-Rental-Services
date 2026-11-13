@@ -52,6 +52,24 @@ class FinancialDashboardAPITests(TestCase):
         self.assertEqual(data["summary"]["net_platform_revenue"], "0.00")
         self.assertTrue(data["rows"][0]["reversed"])
 
+    def test_admin_and_shopkeeper_overviews_reflect_refunds_and_paid_extensions(self):
+        payment = self.booking.payment
+        payment.status = PaymentTransaction.Status.PARTIALLY_REFUNDED
+        payment.refunded_amount = "200.00"
+        payment.save(update_fields=["status", "refunded_amount", "updated_at"])
+        self.booking.total_amount = "1500.00"
+        self.booking.commissionable_base = "1300.00"
+        self.booking.save(update_fields=["total_amount", "commissionable_base", "updated_at"])
+
+        self.client.force_login(self.admin)
+        admin_data = self.client.get(reverse("admin-summary")).json()
+        self.assertEqual(admin_data["summary"]["gross_earnings"], "1300")
+
+        self.client.force_login(self.shop_user)
+        shop_data = self.client.get(reverse("shopkeeper-summary")).json()
+        self.assertEqual(shop_data["summary"]["gross_earnings"], "1300")
+        self.assertEqual(shop_data["summary"]["paid_bookings"], 1)
+
     def test_non_admin_cannot_read_revenue_or_change_commission(self):
         self.client.force_login(self.customer)
         self.assertEqual(self.client.get(reverse("admin-revenue")).status_code, 403)

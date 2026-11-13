@@ -6,7 +6,8 @@ from decimal import Decimal, InvalidOperation
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, F, Q, Sum
+from django.db.models.functions import Coalesce
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 
@@ -39,8 +40,13 @@ def admin_summary(request):
         "pending_shops": ShopkeeperProfile.objects.filter(verification_status=ShopkeeperProfile.VerificationStatus.PENDING).count(),
         "pending_vehicles": Vehicle.objects.filter(listing_status=Vehicle.ListingStatus.PENDING).count(),
         "active_bookings": Booking.objects.filter(status__in=[Booking.Status.PENDING, Booking.Status.CONFIRMED]).count(),
-        "paid_transactions": PaymentTransaction.objects.filter(status=PaymentTransaction.Status.PAID).count(),
-        "gross_earnings": PaymentTransaction.objects.filter(status=PaymentTransaction.Status.PAID).aggregate(total=Sum("amount"))["total"] or 0,
+        "paid_transactions": PaymentTransaction.objects.filter(status__in=[PaymentTransaction.Status.PAID, PaymentTransaction.Status.PARTIALLY_REFUNDED]).count(),
+        "gross_earnings": Booking.objects.filter(
+            payment__status__in=[PaymentTransaction.Status.PAID, PaymentTransaction.Status.PARTIALLY_REFUNDED],
+            commission_reversed_at__isnull=True,
+        ).aggregate(total=Sum(Coalesce(
+            "commissionable_base", F("total_amount") - F("payment__refunded_amount"),
+        )))['total'] or 0,
         "open_audit_events": AuditLog.objects.count(),
     }})
 
@@ -69,13 +75,18 @@ def admin_audit(request):
 @_admin_only
 @require_GET
 def admin_earnings(request):
-    payments = PaymentTransaction.objects.filter(status=PaymentTransaction.Status.PAID).select_related(
+    payments = PaymentTransaction.objects.filter(status__in=[PaymentTransaction.Status.PAID, PaymentTransaction.Status.PARTIALLY_REFUNDED, PaymentTransaction.Status.REFUNDED]).select_related(
         "booking", "booking__vehicle", "booking__vehicle__shopkeeper", "customer"
     )[:100]
-    total = PaymentTransaction.objects.filter(status=PaymentTransaction.Status.PAID).aggregate(total=Sum("amount"))["total"] or 0
-    return JsonResponse({"ok": True, "total": str(total), "count": PaymentTransaction.objects.filter(status=PaymentTransaction.Status.PAID).count(), "payments": [{
+    totals = PaymentTransaction.objects.filter(status__in=[PaymentTransaction.Status.PAID, PaymentTransaction.Status.PARTIALLY_REFUNDED, PaymentTransaction.Status.REFUNDED]).aggregate(
+        paid=Sum("amount"), refunded=Sum("refunded_amount"),
+    )
+    total = (totals["paid"] or Decimal("0.00")) - (totals["refunded"] or Decimal("0.00"))
+    return JsonResponse({"ok": True, "total": str(total), "count": PaymentTransaction.objects.filter(status__in=[PaymentTransaction.Status.PAID, PaymentTransaction.Status.PARTIALLY_REFUNDED, PaymentTransaction.Status.REFUNDED]).count(), "payments": [{
         "id": payment.id, "booking_id": payment.booking_id,
         "amount": str(payment.amount),
+        "refunded_amount": str(payment.refunded_amount),
+        "status": payment.status,
         "customer": payment.customer.get_full_name() or payment.customer.email,
         "vehicle": payment.booking.vehicle.display_name,
         "shop": payment.booking.vehicle.shopkeeper.shop_name,
@@ -108,7 +119,7 @@ def admin_commission_configuration(request):
 @_admin_only
 @require_GET
 def admin_revenue(request):
-    rows = Booking.objects.filter(payment__status__in=[PaymentTransaction.Status.PAID, PaymentTransaction.Status.REFUNDED], financial_confirmed_at__isnull=False).select_related("customer", "vehicle", "vehicle__shopkeeper", "payment")
+    rows = Booking.objects.filter(payment__status__in=[PaymentTransaction.Status.PAID, PaymentTransaction.Status.PARTIALLY_REFUNDED, PaymentTransaction.Status.REFUNDED], financial_confirmed_at__isnull=False).select_related("customer", "vehicle", "vehicle__shopkeeper", "payment")
     term = request.GET.get("q", "").strip()
     if term:
         rows = rows.filter(Q(pk__icontains=term) | Q(vehicle__brand__icontains=term) | Q(vehicle__model_name__icontains=term) | Q(vehicle__shopkeeper__shop_name__icontains=term))
@@ -117,13 +128,13 @@ def admin_revenue(request):
     if request.GET.get("date_from"): rows = rows.filter(created_at__date__gte=request.GET["date_from"])
     if request.GET.get("date_to"): rows = rows.filter(created_at__date__lte=request.GET["date_to"])
     rows = rows.order_by("-created_at")
-    realized = rows.filter(payment__status=PaymentTransaction.Status.PAID, commission_reversed_at__isnull=True)
+    realized = rows.filter(payment__status__in=[PaymentTransaction.Status.PAID, PaymentTransaction.Status.PARTIALLY_REFUNDED], commission_reversed_at__isnull=True)
     totals = realized.aggregate(gross=Sum("commissionable_base"), net=Sum("shopkeeper_net_earnings"), count=Count("id"))
     recorded_commission = rows.aggregate(total=Sum("platform_commission"))["total"] or Decimal("0")
     reversed_total = rows.filter(commission_reversed_at__isnull=False).aggregate(total=Sum("platform_commission"))["total"] or Decimal("0")
     page = Paginator(rows, 25).get_page(request.GET.get("page", 1))
     def row(item):
-        return {"id": item.id, "reference": f"RH-{item.id:06d}", "created_at": item.created_at.isoformat(), "pickup_date": item.pickup_date.isoformat(), "return_date": item.return_date.isoformat(), "customer": item.customer.get_full_name() or item.customer.email, "vehicle": item.vehicle.display_name, "shop": item.vehicle.shopkeeper.shop_name, "commissionable_base": str(item.commissionable_base), "tax_amount": str(item.tax_amount or 0), "customer_payable": str(item.total_amount), "commission_rate": str(item.commission_rate), "platform_commission": str(item.platform_commission), "shopkeeper_net_earnings": str(item.shopkeeper_net_earnings), "payment_status": item.payment.status, "booking_status": item.status, "reversed": bool(item.commission_reversed_at)}
+        return {"id": item.id, "reference": f"RH-{item.id:06d}", "created_at": item.created_at.isoformat(), "pickup_date": item.pickup_date.isoformat(), "return_date": item.return_date.isoformat(), "customer": item.customer.get_full_name() or item.customer.email, "vehicle": item.vehicle.display_name, "shop": item.vehicle.shopkeeper.shop_name, "commissionable_base": str(item.commissionable_base), "tax_amount": str(item.tax_amount or 0), "customer_payable": str(item.total_amount), "commission_rate": str(item.commission_rate), "platform_commission": str(item.platform_commission), "shopkeeper_net_earnings": str(item.shopkeeper_net_earnings), "payment_status": item.payment.status, "refunded_amount": str(item.payment.refunded_amount), "booking_status": item.status, "reversed": bool(item.commission_reversed_at)}
     return JsonResponse({"ok": True, "summary": {"eligible_booking_fare": _currency(totals["gross"]), "platform_commission": _currency(recorded_commission), "shopkeeper_earnings": _currency(totals["net"]), "eligible_bookings": totals["count"], "pending_payments": PaymentTransaction.objects.filter(status=PaymentTransaction.Status.PENDING).count(), "commission_reversals": _currency(reversed_total), "net_platform_revenue": _currency(recorded_commission - reversed_total)}, "rows": [row(item) for item in page.object_list], "pagination": {"page": page.number, "pages": page.paginator.num_pages, "count": page.paginator.count}})
 
 
@@ -167,17 +178,36 @@ def admin_catalog(request, resource):
             "action_url": f"/api/admin/vehicles/{row.id}/action/",
         } for row in rows]})
     if resource == "bookings":
-        rows = Booking.objects.select_related("customer", "vehicle", "vehicle__shopkeeper", "payment")[:200]
-        return JsonResponse({"ok": True, "rows": [{
+        rows = Booking.objects.select_related("customer", "vehicle", "vehicle__shopkeeper", "payment").prefetch_related("changes__refunds")[:200]
+        def booking_row(row):
+            payment = getattr(row, "payment", None)
+            changes = list(row.changes.all())
+            history = []
+            for change in changes:
+                refund_state = ", ".join(f"{refund.provider_status or refund.status}: ₹{refund.amount}" for refund in change.refunds.all())
+                description = f"{change.kind}: {change.status}"
+                if change.kind == "CANCEL":
+                    description += f" · {change.refund_percent}% · ₹{change.refunded_amount} refunded"
+                elif change.kind == "EXTEND":
+                    description += f" · ₹{change.amount} · return {change.to_return}"
+                elif change.to_pickup:
+                    description += f" · pickup {change.to_pickup}"
+                if refund_state:
+                    description += f" · gateway {refund_state}"
+                history.append(description)
+            return {
             "id": row.id, "customer": row.customer.get_full_name() or row.customer.email,
             "vehicle": row.vehicle.display_name, "shop": row.vehicle.shopkeeper.shop_name,
             "pickup": row.pickup_date.isoformat(), "return_date": row.return_date.isoformat(),
             "amount": str(row.total_amount), "status": row.status,
-            "payment_status": row.payment.status if hasattr(row, "payment") else "PENDING",
+            "payment_status": payment.status if payment else "PENDING",
+            "refunded_amount": str(payment.refunded_amount) if payment else "0.00",
+            "change_history": "; ".join(history),
             "renter_email": row.renter_email or row.customer.email,
             "renter_phone": row.renter_phone or row.customer.phone_number,
             "action_url": f"/api/admin/bookings/{row.id}/action/",
-        } for row in rows]})
+            }
+        return JsonResponse({"ok": True, "rows": [booking_row(row) for row in rows]})
     if resource == "customers":
         rows = User.objects.filter(role=User.Role.USER).order_by("-created_at")[:200]
         return JsonResponse({"ok": True, "rows": [{
