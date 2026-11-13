@@ -10,13 +10,15 @@ class PaymentTransaction(models.Model):
         PAID = "PAID", "Paid"
         FAILED = "FAILED", "Failed"
         REFUNDED = "REFUNDED", "Refunded"
+        PARTIALLY_REFUNDED = "PARTIALLY_REFUNDED", "Partially refunded"
         CANCELLED = "CANCELLED", "Cancelled"
 
     booking = models.OneToOneField("bookings.Booking", on_delete=models.PROTECT, related_name="payment")
     customer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="payment_transactions")
     amount = models.DecimalField(max_digits=10, decimal_places=2)
+    refunded_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     currency = models.CharField(max_length=3, default="INR")
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING)
     provider = models.CharField(max_length=40, blank=True)
     provider_reference = models.CharField(max_length=120, blank=True)
     provider_payment_id = models.CharField(max_length=120, blank=True)

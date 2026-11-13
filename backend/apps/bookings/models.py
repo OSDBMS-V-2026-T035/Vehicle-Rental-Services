@@ -19,6 +19,7 @@ class Booking(models.Model):
     pickup_date = models.DateField()
     return_date = models.DateField()
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    daily_rate_snapshot = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     # Financial terms are frozen when a payment is captured.  ``total_amount``
     # remains the authoritative customer payable amount for legacy callers.
     commissionable_base = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
@@ -94,3 +95,72 @@ class BookingInspection(models.Model):
             models.UniqueConstraint(fields=["booking", "stage"], name="unique_booking_inspection_stage"),
         ]
         indexes = [models.Index(fields=["status", "expires_at"]) ]
+
+
+class BookingChange(models.Model):
+    """Audited reschedules, paid extensions, and customer/shop cancellations."""
+
+    class Kind(models.TextChoices):
+        RESCHEDULE = "RESCHEDULE", "Reschedule"
+        EXTEND = "EXTEND", "Extension"
+        CANCEL = "CANCEL", "Cancellation"
+
+    class Status(models.TextChoices):
+        PENDING_PAYMENT = "PENDING_PAYMENT", "Awaiting extension payment"
+        PROCESSING = "PROCESSING", "Processing refund"
+        COMPLETED = "COMPLETED", "Completed"
+        FAILED = "FAILED", "Action failed"
+        CANCELLED = "CANCELLED", "Cancelled by customer"
+        EXPIRED = "EXPIRED", "Payment window expired"
+
+    booking = models.ForeignKey(Booking, on_delete=models.PROTECT, related_name="changes")
+    requested_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="booking_changes")
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    status = models.CharField(max_length=20, choices=Status.choices)
+    from_pickup = models.DateField(null=True, blank=True)
+    from_return = models.DateField(null=True, blank=True)
+    to_pickup = models.DateField(null=True, blank=True)
+    to_return = models.DateField(null=True, blank=True)
+    amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    refunded_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    refund_percent = models.PositiveSmallIntegerField(default=0)
+    currency = models.CharField(max_length=3, default="INR")
+    provider = models.CharField(max_length=40, blank=True)
+    provider_order_id = models.CharField(max_length=120, blank=True)
+    provider_payment_id = models.CharField(max_length=120, blank=True)
+    refund_status = models.CharField(max_length=20, blank=True)
+    reason = models.CharField(max_length=500, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["booking", "kind", "status"])]
+
+
+class BookingRefund(models.Model):
+    """Idempotent gateway refund attempt against one captured payment source."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        INITIATED = "INITIATED", "Refund initiated"
+        FAILED = "FAILED", "Needs retry"
+
+    change = models.ForeignKey(BookingChange, on_delete=models.PROTECT, related_name="refunds")
+    source_key = models.CharField(max_length=80)
+    provider_payment_id = models.CharField(max_length=120)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    provider_refund_id = models.CharField(max_length=120, blank=True)
+    provider_status = models.CharField(max_length=24, blank=True)
+    receipt = models.CharField(max_length=40, unique=True)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    error_message = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["change", "source_key"], name="unique_refund_source_per_change"),
+        ]
