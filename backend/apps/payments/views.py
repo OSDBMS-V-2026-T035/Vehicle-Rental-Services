@@ -2,6 +2,7 @@
 
 import json
 import logging
+import uuid
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
@@ -9,11 +10,13 @@ from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.http import JsonResponse
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from apps.accounts.models import User
-from apps.bookings.models import Booking
+from apps.bookings.models import Booking, BookingChange, BookingRefund
+from apps.bookings.lifecycle import apply_paid_extension, prepare_extension
 from apps.bookings.services import expire_checkout_holds
 from apps.bookings.finance import snapshot_booking_financials
 from apps.notifications.services import notify_paid_booking_with_documents
@@ -70,6 +73,133 @@ def _order_response(payment, order):
         "test_mode": settings.RAZORPAY_KEY_ID.startswith("rzp_test_"),
         "prefill": {"name": payment.customer.get_full_name(), "email": payment.customer.email, "contact": f"+91{payment.customer.phone_number}"},
     }
+
+
+def _extension_order_response(change, order):
+    return {
+        "ok": True, "key_id": settings.RAZORPAY_KEY_ID, "order_id": order["id"],
+        "amount": _amount_in_paise(change.amount), "currency": change.currency,
+        "change_id": change.id, "booking_id": change.booking_id,
+        "to_return": change.to_return.isoformat() if change.to_return else None,
+        "description": f"RideHub booking #{change.booking_id} extension",
+        "test_mode": settings.RAZORPAY_KEY_ID.startswith("rzp_test_"),
+        "prefill": {
+            "name": change.requested_by.get_full_name(),
+            "email": change.requested_by.email,
+            "contact": f"+91{change.requested_by.phone_number}",
+        },
+        "expires_at": change.expires_at.isoformat() if change.expires_at else None,
+    }
+
+
+def _extension_payment_matches(change, provider_payment):
+    return (
+        str(provider_payment.get("order_id") or "") == change.provider_order_id
+        and int(provider_payment.get("amount") or 0) == _amount_in_paise(change.amount)
+        and str(provider_payment.get("currency") or "").upper() == change.currency.upper()
+    )
+
+
+def _capture_extension_payment(gateway, change, gateway_payment_id):
+    provider_payment = gateway.fetch_payment(gateway_payment_id)
+    if not _extension_payment_matches(change, provider_payment):
+        raise ValueError("Provider payment does not match this extension.")
+    if provider_payment.get("status") == "authorized":
+        provider_payment = gateway.capture_payment(
+            gateway_payment_id, _amount_in_paise(change.amount), {"currency": change.currency},
+        )
+    if provider_payment.get("status") != "captured":
+        raise ValueError("Extension payment is still awaiting bank confirmation.")
+
+
+def _refund_receipt(change_id, source):
+    import hashlib
+    digest = hashlib.sha256(f"ridehub-refund:{change_id}:{source}".encode("utf-8")).hexdigest()[:28]
+    return f"RH-RF-{digest}"
+
+
+def _refund_unapplied_extension(
+    gateway, change, gateway_payment_id, *, reason="Extension date hold expired",
+    terminal_status=BookingChange.Status.EXPIRED,
+):
+    """Refund a captured add-on that cannot be safely applied to the booking."""
+    source = f"unapplied:{gateway_payment_id}"
+    with transaction.atomic():
+        refund, _ = BookingRefund.objects.get_or_create(
+            change=change, source_key=source,
+            defaults={
+                "provider_payment_id": gateway_payment_id, "amount": change.amount,
+                "receipt": _refund_receipt(change.id, source),
+            },
+        )
+        if refund.status == BookingRefund.Status.INITIATED:
+            return True
+        try:
+            result = None
+            if refund.status == BookingRefund.Status.FAILED:
+                listed = gateway.list_refunds(gateway_payment_id)
+                result = next((item for item in listed.get("items", []) if str(item.get("receipt") or "") == refund.receipt), None)
+                if result and str(result.get("status") or "").lower() == "failed":
+                    refund.receipt = f"RH-RF-{uuid.uuid4().hex[:20]}"
+                    refund.status = BookingRefund.Status.PENDING
+                    refund.provider_status = "failed"
+                    refund.error_message = "Retrying after the provider marked the previous refund failed."
+                    refund.save(update_fields=["receipt", "status", "provider_status", "error_message", "updated_at"])
+                    result = None
+            if result is None:
+                result = gateway.refund(gateway_payment_id, {
+                    "amount": _amount_in_paise(change.amount), "receipt": refund.receipt,
+                    "notes": {"booking_id": str(change.booking_id), "reason": reason[:200]},
+                })
+            if str(result.get("payment_id") or gateway_payment_id) != gateway_payment_id or int(result.get("amount") or 0) != _amount_in_paise(change.amount):
+                raise ValueError("The refund response did not match the expired extension payment.")
+            if str(result.get("status") or "pending").lower() == "failed":
+                refund.provider_refund_id = str(result.get("id") or "")
+                refund.provider_status = "failed"
+                refund.status = BookingRefund.Status.FAILED
+                refund.error_message = "Razorpay marked this refund as failed. Retry to reconcile it."
+                refund.save(update_fields=["provider_refund_id", "provider_status", "status", "error_message", "updated_at"])
+                return False
+            refund.provider_refund_id = str(result.get("id") or "")
+            refund.provider_status = str(result.get("status") or "pending")
+            refund.status = BookingRefund.Status.INITIATED
+            refund.error_message = ""
+            refund.save(update_fields=["provider_refund_id", "provider_status", "status", "error_message", "updated_at"])
+            change.provider_payment_id = gateway_payment_id
+            change.refunded_amount = change.amount
+            change.refund_status = "INITIATED"
+            change.status = terminal_status
+            change.save(update_fields=["provider_payment_id", "refunded_amount", "refund_status", "status", "updated_at"])
+            return True
+        except Exception:
+            logger.exception("Unable to refund expired extension change %s", change.id)
+            refund.status = BookingRefund.Status.FAILED
+            refund.error_message = "Refund could not be confirmed; retry with the same receipt."
+            refund.save(update_fields=["status", "error_message", "updated_at"])
+            return False
+
+
+def _finalize_extension_payment(gateway, change, gateway_payment_id):
+    """Apply an add-on after capture, refunding it if finalization loses its hold."""
+    _capture_extension_payment(gateway, change, gateway_payment_id)
+    try:
+        return apply_paid_extension(change_id=change.id, provider_payment_id=gateway_payment_id)
+    except Exception:
+        change.refresh_from_db()
+        if (change.status == BookingChange.Status.COMPLETED
+                and change.provider_payment_id == gateway_payment_id):
+            return change.booking
+        provider_payment = gateway.fetch_payment(gateway_payment_id)
+        if not (_extension_payment_matches(change, provider_payment)
+                and provider_payment.get("status") == "captured"):
+            raise
+        reason = "Extension could not be finalized after payment capture"
+        if not _refund_unapplied_extension(
+            gateway, change, gateway_payment_id, reason=reason,
+            terminal_status=BookingChange.Status.FAILED,
+        ):
+            raise RuntimeError("Payment was captured but the extension could not be applied; refund reconciliation is required.")
+        raise ValueError("Payment was captured, but the extension could not be applied. A refund has been initiated.")
 
 
 def _provider_payment_matches(payment, provider_payment):
@@ -245,6 +375,165 @@ def reconcile_razorpay_payment(request, payment_id):
     return JsonResponse({"ok": True, "status": "PAID", "message": "Payment confirmed successfully."})
 
 
+@_customer_only
+@require_POST
+@transaction.atomic
+def create_extension_order(request, booking_id):
+    configuration_error = _razorpay_configuration_error()
+    if configuration_error:
+        return JsonResponse({"ok": False, "message": configuration_error}, status=503)
+    gateway = _payment_gateway("RAZORPAY")
+    if gateway is None:
+        return JsonResponse({"ok": False, "message": "Razorpay is not configured yet."}, status=503)
+    new_return = parse_date(str(_payload(request).get("return_date") or ""))
+    if not new_return:
+        return JsonResponse({"ok": False, "message": "Choose a valid new return date."}, status=400)
+    expire_checkout_holds()
+    change = None
+    try:
+        change = BookingChange.objects.filter(
+            booking_id=booking_id, requested_by=request.user, kind=BookingChange.Kind.EXTEND,
+            status=BookingChange.Status.PENDING_PAYMENT, to_return=new_return,
+            expires_at__gt=timezone.now(),
+        ).select_related("booking", "requested_by").select_for_update().first()
+        if change:
+            booking = change.booking
+            order = None
+            if change.provider_order_id:
+                existing_order = gateway.fetch_order(change.provider_order_id)
+                if (existing_order.get("id") == change.provider_order_id
+                        and int(existing_order.get("amount") or 0) == _amount_in_paise(change.amount)
+                        and str(existing_order.get("currency") or "").upper() == change.currency.upper()
+                        and existing_order.get("status") in {"created", "attempted"}):
+                    order = existing_order
+            if order is None:
+                # The old provider order may already have a captured payment;
+                # reconcile it before issuing another order for this change.
+                if change.provider_order_id:
+                    payments = gateway.list_payments(change.provider_order_id, count=100)
+                    captured = next((item for item in reversed(payments.get("items", []))
+                                     if item.get("status") in {"authorized", "captured"}
+                                     and _extension_payment_matches(change, item)), None)
+                    if captured:
+                        return JsonResponse({"ok": False, "message": "An extension payment was already found. Refresh your booking history before trying again."}, status=409)
+                order = gateway.create_order({
+                    "amount": _amount_in_paise(change.amount), "currency": change.currency,
+                    "receipt": f"ridehub-ext-{change.id}-{uuid.uuid4().hex[:12]}",
+                    "notes": {"booking_id": str(booking.id), "change_id": str(change.id), "kind": "booking_extension"},
+                })
+        else:
+            booking, change = prepare_extension(customer=request.user, booking_id=booking_id, new_return=new_return)
+            order = gateway.create_order({
+                "amount": _amount_in_paise(change.amount), "currency": change.currency,
+                "receipt": f"ridehub-ext-{change.id}-{uuid.uuid4().hex[:12]}",
+                "notes": {"booking_id": str(booking.id), "change_id": str(change.id), "kind": "booking_extension"},
+            })
+        if not order.get("id"):
+            raise RuntimeError("Razorpay did not return an extension order reference.")
+        change.provider_order_id = str(order["id"])
+        change.save(update_fields=["provider_order_id", "updated_at"])
+    except LookupError as exc:
+        return JsonResponse({"ok": False, "message": str(exc)}, status=404)
+    except ValueError as exc:
+        return JsonResponse({"ok": False, "message": str(exc)}, status=409)
+    except Exception:
+        logger.exception("Unable to create Razorpay extension order for booking %s", booking_id)
+        if change:
+            # Keep a persisted provider order pending on transient lookup
+            # errors: it may still be usable by an open checkout. Only close
+            # a brand-new hold when no provider order was ever saved.
+            BookingChange.objects.filter(
+                pk=change.pk, provider_order_id="", status=BookingChange.Status.PENDING_PAYMENT,
+            ).update(
+                status=BookingChange.Status.FAILED, updated_at=timezone.now(),
+            )
+        return JsonResponse({"ok": False, "message": "Unable to start the extension payment. Please retry."}, status=502)
+    return JsonResponse(_extension_order_response(change, order))
+
+
+@_customer_only
+@require_POST
+def verify_extension_payment(request):
+    gateway = _payment_gateway("RAZORPAY")
+    if gateway is None:
+        return JsonResponse({"ok": False, "message": "Razorpay is not configured yet."}, status=503)
+    payload = _payload(request)
+    try:
+        change_id = int(payload.get("change_id"))
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "message": "Invalid extension payment confirmation."}, status=400)
+    order_id, gateway_payment_id, signature = (
+        str(payload.get(key) or "") for key in
+        ("razorpay_order_id", "razorpay_payment_id", "razorpay_signature")
+    )
+    if not order_id or not gateway_payment_id or not signature:
+        return JsonResponse({"ok": False, "message": "Incomplete extension payment confirmation."}, status=400)
+    try:
+        expire_checkout_holds()
+        change = BookingChange.objects.select_related("booking", "requested_by").get(
+            pk=change_id, booking__customer=request.user, kind=BookingChange.Kind.EXTEND,
+        )
+        if change.status == BookingChange.Status.COMPLETED and change.provider_payment_id == gateway_payment_id:
+            return JsonResponse({"ok": True, "message": "Extension payment was already verified."})
+        if change.provider_order_id != order_id:
+            return JsonResponse({"ok": False, "message": "This extension checkout does not match the booking."}, status=409)
+        gateway.verify_payment_signature({
+            "razorpay_order_id": order_id, "razorpay_payment_id": gateway_payment_id,
+            "razorpay_signature": signature,
+        })
+        if change.status == BookingChange.Status.EXPIRED or (change.expires_at and change.expires_at <= timezone.now()):
+            provider_payment = gateway.fetch_payment(gateway_payment_id)
+            if _extension_payment_matches(change, provider_payment) and provider_payment.get("status") == "captured":
+                if not _refund_unapplied_extension(gateway, change, gateway_payment_id):
+                    return JsonResponse({"ok": False, "message": "Payment arrived after the date hold expired. Refund retry is needed; please contact support."}, status=502)
+            return JsonResponse({"ok": False, "message": "The extension date hold expired. Any captured payment has been refunded."}, status=409)
+        if change.status != BookingChange.Status.PENDING_PAYMENT:
+            return JsonResponse({"ok": False, "message": "This extension checkout is no longer active."}, status=409)
+        booking = _finalize_extension_payment(gateway, change, gateway_payment_id)
+    except BookingChange.DoesNotExist:
+        return JsonResponse({"ok": False, "message": "Extension request not found."}, status=404)
+    except Exception as exc:
+        logger.exception("Unable to verify extension payment %s", change_id)
+        message = str(exc) if isinstance(exc, ValueError) else "We could not verify this extension payment. No booking dates were changed."
+        return JsonResponse({"ok": False, "message": message}, status=400)
+    return JsonResponse({"ok": True, "message": "Extension paid and confirmed.", "booking_id": booking.id, "return_date": booking.return_date.isoformat()})
+
+
+@_customer_only
+@require_POST
+def reconcile_extension_payment(request, change_id):
+    gateway = _payment_gateway("RAZORPAY")
+    if gateway is None:
+        return JsonResponse({"ok": False, "message": "Razorpay is not configured yet."}, status=503)
+    try:
+        expire_checkout_holds()
+        change = BookingChange.objects.get(pk=change_id, booking__customer=request.user, kind=BookingChange.Kind.EXTEND)
+    except BookingChange.DoesNotExist:
+        return JsonResponse({"ok": False, "message": "Extension request not found."}, status=404)
+    if change.status == BookingChange.Status.COMPLETED:
+        return JsonResponse({"ok": True, "status": "PAID", "booking_id": change.booking_id})
+    if change.status not in {BookingChange.Status.PENDING_PAYMENT, BookingChange.Status.EXPIRED} or not change.provider_order_id:
+        return JsonResponse({"ok": True, "status": change.status})
+    try:
+        result = gateway.list_payments(change.provider_order_id, count=100)
+        matched = next((item for item in reversed(result.get("items", []))
+                        if item.get("status") in {"authorized", "captured"}
+                        and _extension_payment_matches(change, item)), None)
+        if not matched:
+            return JsonResponse({"ok": True, "status": "PENDING", "message": "No completed extension payment was found yet."})
+        payment_id = str(matched["id"])
+        expired = change.status == BookingChange.Status.EXPIRED or bool(change.expires_at and change.expires_at <= timezone.now())
+        if expired:
+            if matched.get("status") == "captured" and _refund_unapplied_extension(gateway, change, payment_id):
+                return JsonResponse({"ok": True, "status": "EXPIRED", "message": "The extension date hold expired; a refund was initiated."})
+            return JsonResponse({"ok": True, "status": "EXPIRED", "message": "The extension date hold expired. Contact support to reconcile payment."})
+        booking = _finalize_extension_payment(gateway, change, payment_id)
+        return JsonResponse({"ok": True, "status": "PAID", "booking_id": booking.id})
+    except Exception:
+        logger.exception("Unable to reconcile extension change %s", change.id)
+        return JsonResponse({"ok": True, "status": "PENDING", "message": "Extension payment confirmation is still in progress."})
+
+
 @csrf_exempt
 @require_POST
 def razorpay_webhook(request):
@@ -274,6 +563,23 @@ def razorpay_webhook(request):
         payment = PaymentTransaction.objects.select_for_update().select_related("booking", "booking__vehicle", "customer").filter(
             provider="RAZORPAY", provider_reference=order_id
         ).first()
+        if payment is None:
+            change = BookingChange.objects.select_for_update().select_related("booking", "requested_by").filter(
+                provider="RAZORPAY", provider_order_id=order_id, kind=BookingChange.Kind.EXTEND,
+            ).first()
+            if change is None or amount != _amount_in_paise(change.amount) or not _extension_payment_matches(change, entity):
+                return JsonResponse({"ok": True})
+            if change.status == BookingChange.Status.EXPIRED:
+                if entity.get("status") == "captured":
+                    _refund_unapplied_extension(gateway, change, gateway_payment_id)
+                return JsonResponse({"ok": True})
+            if change.status != BookingChange.Status.PENDING_PAYMENT:
+                return JsonResponse({"ok": True})
+            try:
+                _finalize_extension_payment(gateway, change, gateway_payment_id)
+            except Exception:
+                logger.exception("Unable to process captured extension webhook for change %s", change.id)
+            return JsonResponse({"ok": True})
         if payment is None or payment.booking.status != Booking.Status.PENDING or payment.status == PaymentTransaction.Status.PAID or amount != _amount_in_paise(payment.amount):
             return JsonResponse({"ok": True})
         if payment.status != PaymentTransaction.Status.PENDING:

@@ -23,6 +23,7 @@ class PaymentGateway(Protocol):
     def verify_payment_signature(self, data): ...
     def verify_webhook_signature(self, body, signature, secret): ...
     def refund(self, payment_id, data): ...
+    def list_refunds(self, payment_id): ...
 
 
 @dataclass
@@ -61,6 +62,9 @@ class RazorpayGateway:
 
     def refund(self, payment_id, data):
         return self.client.payment.refund(payment_id, data)
+
+    def list_refunds(self, payment_id):
+        return self.client.refund.all({"payment_id": payment_id, "count": 100})
 
 
 _GATEWAYS = {"RAZORPAY": RazorpayGateway}

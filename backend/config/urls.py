@@ -10,9 +10,10 @@ from apps.accounts.views import auth_page, booking_checkout_page, captcha_view, 
 from apps.adminpanel.views import booking_action, shopkeeper_action, user_action, vehicle_action
 from apps.adminpanel.portal_views import admin_audit, admin_catalog, admin_commission_configuration, admin_earnings, admin_revenue, admin_review_queues, admin_summary
 from apps.bookings.views import booking_history, cancel_customer_booking, checkout_defaults, create_booking, create_checkout_booking_view, request_handover_code, shopkeeper_vehicle_availability
+from apps.bookings.lifecycle import reschedule_customer_booking
 from apps.bookings.documents import download_booking_document
 from apps.accounts.shopkeeper_portal_views import set_vehicle_availability, shopkeeper_earnings, shopkeeper_reservation_action, shopkeeper_reservations, shopkeeper_summary, update_vehicle_rate
-from apps.payments.views import create_razorpay_order, razorpay_checkout_status, razorpay_webhook, reconcile_razorpay_payment, verify_razorpay_payment
+from apps.payments.views import create_extension_order, create_razorpay_order, razorpay_checkout_status, razorpay_webhook, reconcile_extension_payment, reconcile_razorpay_payment, verify_extension_payment, verify_razorpay_payment
 from apps.shops.views import search_shops, shopkeeper_dashboard, update_shopkeeper_profile
 from apps.vehicles.views import create_vehicle, my_vehicles, remove_vehicle, search_vehicles, update_vehicle_inventory, vehicle_detail, vehicle_image
 
@@ -76,9 +77,13 @@ urlpatterns = [
     path("api/bookings/<int:booking_id>/handover-code/", request_handover_code, name="booking-handover-code"),
     path("api/bookings/<int:booking_id>/documents/<str:kind>/", download_booking_document, name="booking-document-download"),
     path("api/bookings/<int:booking_id>/cancel/", cancel_customer_booking, name="booking-cancel"),
+    path("api/bookings/<int:booking_id>/reschedule/", reschedule_customer_booking, name="booking-reschedule"),
+    path("api/bookings/<int:booking_id>/extend/", create_extension_order, name="booking-extend"),
     path("api/payments/razorpay/order/<int:payment_id>/", create_razorpay_order, name="razorpay-create-order"),
     path("api/payments/razorpay/status/", razorpay_checkout_status, name="razorpay-checkout-status"),
     path("api/payments/razorpay/verify/", verify_razorpay_payment, name="razorpay-verify-payment"),
+    path("api/payments/razorpay/extension/verify/", verify_extension_payment, name="razorpay-extension-verify"),
+    path("api/payments/razorpay/extension/reconcile/<int:change_id>/", reconcile_extension_payment, name="razorpay-extension-reconcile"),
     path("api/payments/razorpay/reconcile/<int:payment_id>/", reconcile_razorpay_payment, name="razorpay-reconcile-payment"),
     path("api/payments/razorpay/webhook/", razorpay_webhook, name="razorpay-webhook"),
     path("admin/", admin.site.urls),

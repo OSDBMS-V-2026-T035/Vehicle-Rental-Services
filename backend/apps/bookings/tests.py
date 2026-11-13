@@ -7,12 +7,26 @@ from django.db import OperationalError
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from apps.payments.models import PaymentTransaction
 
 from .documents import _document_bytes
-from .models import Booking
+from .models import Booking, BookingChange
+from .policy import cancellation_refund_percent, refund_amount
 from .handover import CHECKLIST_FIELDS, validate_inspection_payload
 from .services import active_reservation_statuses, create_checkout_booking
+
+
+class BookingCancellationPolicyTests(SimpleTestCase):
+    def test_refund_tiers_match_the_published_windows(self):
+        pickup = date(2026, 12, 10)
+        self.assertEqual(cancellation_refund_percent(pickup, date(2026, 12, 5)), 100)
+        self.assertEqual(cancellation_refund_percent(pickup, date(2026, 12, 7)), 80)
+        self.assertEqual(cancellation_refund_percent(pickup, date(2026, 12, 9)), 50)
+        self.assertEqual(cancellation_refund_percent(pickup, date(2026, 12, 10)), 0)
+
+    def test_refund_rounds_to_paise(self):
+        self.assertEqual(refund_amount(Decimal("499.99"), 80), Decimal("399.99"))
 
 
 class BookingDocumentTests(SimpleTestCase):
@@ -154,6 +168,252 @@ class ActiveReservationQueryTests(TestCase):
         ).get(pk=self.vehicle.pk)
 
         self.assertEqual(vehicle.reserved_units, 1)
+
+    def test_pending_extension_holds_only_additional_dates_and_never_double_counts(self):
+        from .services import active_reservation_count
+
+        pickup = date.today() + timedelta(days=4)
+        booking = Booking.objects.create(
+            customer=self.customer, vehicle=self.vehicle, pickup_date=pickup,
+            return_date=pickup + timedelta(days=1), total_amount="1000.00",
+            status=Booking.Status.CONFIRMED,
+        )
+        BookingChange.objects.create(
+            booking=booking, requested_by=self.customer,
+            kind=BookingChange.Kind.EXTEND, status=BookingChange.Status.PENDING_PAYMENT,
+            from_pickup=pickup, from_return=booking.return_date,
+            to_pickup=pickup, to_return=pickup + timedelta(days=3),
+            amount="2000.00", expires_at=timezone.now() + timedelta(minutes=10),
+        )
+
+        self.assertEqual(active_reservation_count(
+            vehicle_id=self.vehicle.id, pickup_date=pickup, return_date=booking.return_date,
+        ), 1)
+        self.assertEqual(active_reservation_count(
+            vehicle_id=self.vehicle.id, pickup_date=booking.return_date + timedelta(days=1),
+            return_date=pickup + timedelta(days=3),
+        ), 1)
+
+
+class BookingLifecycleIntegrationTests(TestCase):
+    def setUp(self):
+        from apps.accounts.models import ShopkeeperProfile, User
+        from apps.payments.models import PaymentTransaction
+        from apps.vehicles.models import Vehicle
+
+        owner = User.objects.create_user(
+            email="lifecycle-shop@example.com", phone_number="9876543230", password="safe-test-pass",
+            role=User.Role.SHOPKEEPER, is_email_verified=True,
+        )
+        shop = ShopkeeperProfile.objects.create(
+            user=owner, shop_name="Lifecycle Rentals", shop_address="Dehradun",
+            verification_status=ShopkeeperProfile.VerificationStatus.VERIFIED,
+        )
+        self.customer = User.objects.create_user(
+            email="lifecycle-renter@example.com", phone_number="9876543231", password="safe-test-pass",
+            is_email_verified=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            shopkeeper=shop, vehicle_type=Vehicle.VehicleType.SCOOTER,
+            brand="Test", model_name="Scooter", registration_number="UK07XY1234",
+            manufacturing_year=2024, daily_rate="500.00",
+            listing_status=Vehicle.ListingStatus.APPROVED,
+        )
+        self.pickup = timezone.localdate() + timedelta(days=5)
+        self.booking = Booking.objects.create(
+            customer=self.customer, vehicle=self.vehicle, pickup_date=self.pickup,
+            return_date=self.pickup + timedelta(days=2), total_amount="1000.00",
+            daily_rate_snapshot="500.00", status=Booking.Status.CONFIRMED,
+            commissionable_base="1000.00", commission_rate="10.00",
+            platform_commission="100.00", shopkeeper_net_earnings="900.00",
+            financial_confirmed_at=timezone.now(),
+        )
+        self.payment = PaymentTransaction.objects.create(
+            booking=self.booking, customer=self.customer, amount="1000.00",
+            status=PaymentTransaction.Status.PAID, provider="RAZORPAY",
+            provider_payment_id="pay_lifecycle_1", provider_reference="order_lifecycle_1",
+        )
+
+    def test_extension_uses_frozen_daily_rate_and_updates_financial_snapshot(self):
+        from .lifecycle import apply_paid_extension, prepare_extension
+
+        booking, change = prepare_extension(
+            customer=self.customer, booking_id=self.booking.id,
+            new_return=self.booking.return_date + timedelta(days=1),
+        )
+        self.assertEqual(change.amount, Decimal("500.00"))
+        self.assertEqual(change.status, BookingChange.Status.PENDING_PAYMENT)
+        booking = apply_paid_extension(change_id=change.id, provider_payment_id="pay_extension_1")
+        booking.refresh_from_db()
+        change.refresh_from_db()
+        self.assertEqual(booking.return_date, self.pickup + timedelta(days=3))
+        self.assertEqual(booking.total_amount, Decimal("1500.00"))
+        self.assertEqual(booking.platform_commission, Decimal("150.00"))
+        self.assertEqual(change.status, BookingChange.Status.COMPLETED)
+
+    def test_reschedule_preserves_duration_without_repricing(self):
+        from .lifecycle import prepare_reschedule
+
+        new_pickup = timezone.localdate() + timedelta(days=10)
+        booking, change = prepare_reschedule(
+            customer=self.customer, booking_id=self.booking.id, new_pickup=new_pickup,
+        )
+        self.assertEqual(booking.pickup_date, new_pickup)
+        self.assertEqual(booking.return_date, new_pickup + timedelta(days=2))
+        self.assertEqual(booking.total_amount, Decimal("1000.00"))
+        self.assertEqual(change.status, BookingChange.Status.COMPLETED)
+
+    @patch("apps.bookings.cancellations.get_payment_gateway")
+    def test_customer_cancellation_applies_full_five_day_refund(self, get_gateway):
+        from .cancellations import cancel_booking
+
+        gateway = get_gateway.return_value
+        gateway.refund.return_value = {
+            "id": "rfnd_lifecycle_1", "payment_id": "pay_lifecycle_1",
+            "amount": 100000, "status": "pending",
+        }
+        change, completed = cancel_booking(
+            booking_id=self.booking.id, actor=self.customer, customer_request=True,
+        )
+        self.booking.refresh_from_db()
+        self.payment.refresh_from_db()
+        self.assertTrue(completed)
+        self.assertEqual(change.refund_percent, 100)
+        self.assertEqual(change.refunded_amount, Decimal("1000.00"))
+        self.assertEqual(self.booking.status, Booking.Status.CANCELLED)
+        self.assertEqual(self.payment.status, PaymentTransaction.Status.REFUNDED)
+        self.assertEqual(self.booking.commissionable_base, Decimal("0.00"))
+        gateway.refund.assert_called_once()
+
+    @patch("apps.bookings.cancellations.get_payment_gateway")
+    def test_three_day_cancellation_refunds_eighty_percent(self, get_gateway):
+        from .cancellations import cancel_booking
+
+        self.booking.pickup_date = timezone.localdate() + timedelta(days=3)
+        self.booking.save(update_fields=["pickup_date"])
+        gateway = get_gateway.return_value
+        gateway.refund.return_value = {
+            "id": "rfnd_lifecycle_2", "payment_id": "pay_lifecycle_1",
+            "amount": 80000, "status": "pending",
+        }
+        change, completed = cancel_booking(
+            booking_id=self.booking.id, actor=self.customer, customer_request=True,
+        )
+        self.payment.refresh_from_db()
+        self.assertTrue(completed)
+        self.assertEqual(change.refund_percent, 80)
+        self.assertEqual(change.refunded_amount, Decimal("800.00"))
+        self.assertEqual(self.payment.status, PaymentTransaction.Status.PARTIALLY_REFUNDED)
+
+    @patch("apps.bookings.cancellations.get_payment_gateway")
+    def test_one_day_cancellation_refunds_fifty_percent(self, get_gateway):
+        from .cancellations import cancel_booking
+
+        self.booking.pickup_date = timezone.localdate() + timedelta(days=1)
+        self.booking.save(update_fields=["pickup_date"])
+        get_gateway.return_value.refund.return_value = {
+            "id": "rfnd_lifecycle_3", "payment_id": "pay_lifecycle_1",
+            "amount": 50000, "status": "pending",
+        }
+        change, completed = cancel_booking(
+            booking_id=self.booking.id, actor=self.customer, customer_request=True,
+        )
+        self.assertTrue(completed)
+        self.assertEqual(change.refund_percent, 50)
+        self.assertEqual(change.refunded_amount, Decimal("500.00"))
+
+    @patch("apps.payments.views.apply_paid_extension", side_effect=ValueError("Capacity changed."))
+    def test_captured_extension_that_cannot_be_applied_is_refunded(self, apply_extension):
+        from apps.payments.views import _finalize_extension_payment
+        from .lifecycle import prepare_extension
+
+        _, change = prepare_extension(
+            customer=self.customer, booking_id=self.booking.id,
+            new_return=self.booking.return_date + timedelta(days=1),
+        )
+        change.provider_order_id = "order_extension_unapplied"
+        change.save(update_fields=["provider_order_id"])
+        gateway = Mock()
+        gateway.fetch_payment.return_value = {
+            "id": "pay_extension_unapplied", "order_id": change.provider_order_id,
+            "amount": 50000, "currency": "INR", "status": "captured",
+        }
+        gateway.refund.return_value = {
+            "id": "rfnd_extension_unapplied", "payment_id": "pay_extension_unapplied",
+            "amount": 50000, "status": "pending",
+        }
+        with self.assertRaisesMessage(ValueError, "A refund has been initiated"):
+            _finalize_extension_payment(gateway, change, "pay_extension_unapplied")
+        change.refresh_from_db()
+        self.assertEqual(change.status, BookingChange.Status.FAILED)
+        self.assertEqual(change.refunded_amount, Decimal("500.00"))
+        self.assertEqual(change.refunds.get().status, "INITIATED")
+        apply_extension.assert_called_once()
+
+    @patch("apps.bookings.cancellations.get_payment_gateway")
+    def test_same_day_cancellation_does_not_call_gateway(self, get_gateway):
+        from .cancellations import cancel_booking
+
+        self.booking.pickup_date = timezone.localdate()
+        self.booking.save(update_fields=["pickup_date"])
+        change, completed = cancel_booking(
+            booking_id=self.booking.id, actor=self.customer, customer_request=True,
+        )
+        self.assertTrue(completed)
+        self.assertEqual(change.refund_percent, 0)
+        self.assertEqual(change.refunded_amount, Decimal("0.00"))
+        get_gateway.assert_not_called()
+
+    @patch("apps.bookings.cancellations.get_payment_gateway")
+    def test_refund_retry_reuses_the_same_gateway_receipt(self, get_gateway):
+        from .cancellations import cancel_booking
+
+        gateway = get_gateway.return_value
+        gateway.refund.side_effect = [RuntimeError("timeout"), {
+            "id": "rfnd_retry", "payment_id": "pay_lifecycle_1", "amount": 100000, "status": "pending",
+        }]
+        first, completed = cancel_booking(
+            booking_id=self.booking.id, actor=self.customer, customer_request=True,
+        )
+        self.assertFalse(completed)
+        refund = first.refunds.get()
+        first_receipt = refund.receipt
+        second, completed = cancel_booking(
+            booking_id=self.booking.id, actor=self.customer, customer_request=True,
+        )
+        self.assertTrue(completed)
+        self.assertEqual(second.refunds.get().receipt, first_receipt)
+        self.assertEqual(gateway.refund.call_args_list[0].args[1]["receipt"], first_receipt)
+        self.assertEqual(gateway.refund.call_args_list[1].args[1]["receipt"], first_receipt)
+
+    @patch("apps.bookings.cancellations.get_payment_gateway")
+    def test_provider_declined_refund_retries_with_a_new_receipt(self, get_gateway):
+        from .cancellations import cancel_booking
+
+        gateway = get_gateway.return_value
+        gateway.refund.side_effect = [{
+            "id": "rfnd_declined", "payment_id": "pay_lifecycle_1",
+            "amount": 100000, "status": "failed",
+        }, {
+            "id": "rfnd_retry_ok", "payment_id": "pay_lifecycle_1",
+            "amount": 100000, "status": "pending",
+        }]
+        first, completed = cancel_booking(
+            booking_id=self.booking.id, actor=self.customer, customer_request=True,
+        )
+        self.assertFalse(completed)
+        refund = first.refunds.get()
+        failed_receipt = refund.receipt
+        gateway.list_refunds.return_value = {"items": [{
+            "id": "rfnd_declined", "receipt": failed_receipt, "status": "failed",
+        }]}
+        second, completed = cancel_booking(
+            booking_id=self.booking.id, actor=self.customer, customer_request=True,
+        )
+        refund.refresh_from_db()
+        self.assertTrue(completed)
+        self.assertNotEqual(refund.receipt, failed_receipt)
+        self.assertEqual(gateway.refund.call_args_list[1].args[1]["receipt"], refund.receipt)
 
 
 class HandoverInspectionValidationTests(SimpleTestCase):

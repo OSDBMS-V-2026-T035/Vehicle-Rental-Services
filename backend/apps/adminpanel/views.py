@@ -12,6 +12,7 @@ from django.views.decorators.http import require_POST
 from apps.accounts.models import ShopkeeperProfile, User
 from apps.notifications.services import notify_user
 from apps.bookings.models import Booking
+from apps.bookings.cancellations import cancel_booking
 from apps.payments.models import PaymentTransaction
 from .models import AuditLog
 from apps.vehicles.models import Vehicle
@@ -228,6 +229,19 @@ def booking_action(request, booking_id):
         return JsonResponse({"ok": False, "message": "Bookings are financial records and cannot be deleted. Use the audited cancellation workflow where applicable."}, status=409)
     if action not in {"confirm", "cancel", "complete", "edit"}:
         return JsonResponse({"ok": False, "message": "Choose confirm, cancel, complete, edit, or delete."}, status=400)
+    if action == "cancel":
+        try:
+            change, completed = cancel_booking(
+                booking_id=booking_id, actor=request.user, refund_percent=100,
+                reason="Cancelled by administrator",
+            )
+        except LookupError as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=404)
+        except ValueError as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=409)
+        if not completed:
+            return JsonResponse({"ok": False, "message": "Refund could not be confirmed yet. Retry the same cancellation to resume safely."}, status=502)
+        return JsonResponse({"ok": True, "message": f"Booking cancelled; ₹{change.refunded_amount} refund initiated."})
     status_by_action = {
         "confirm": Booking.Status.CONFIRMED,
         "cancel": Booking.Status.CANCELLED,
