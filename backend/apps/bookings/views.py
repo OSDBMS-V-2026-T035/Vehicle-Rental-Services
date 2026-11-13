@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from decimal import Decimal
 import re
 
 from django.conf import settings
@@ -17,6 +18,9 @@ from apps.payments.models import PaymentTransaction
 from apps.adminpanel.models import AuditLog
 from apps.vehicles.models import Vehicle
 from .models import Booking
+from .models import BookingChange
+from .cancellations import cancel_booking
+from .policy import cancellation_policy_payload
 from .handover import HANDOVER_CODE_TTL_MINUTES, handover_qr_svg, issue_handover_code
 from .services import create_checkout_booking, create_locked_booking, expire_checkout_holds
 from apps.accounts.models import phone_validator
@@ -39,6 +43,45 @@ def _booking_summary(booking):
     # can change later, so never rebuild the paid total from that mutable value.
     rental_fare = booking.commissionable_base if booking.commissionable_base is not None else booking.total_amount
     gst_amount = booking.tax_amount if booking.tax_amount is not None else 0
+    changes = list(booking.changes.all())
+    paid_extensions = [change for change in changes if
+        change.kind == BookingChange.Kind.EXTEND and change.status == BookingChange.Status.COMPLETED
+    ]
+    has_open_change = any(change.status in {
+        BookingChange.Status.PENDING_PAYMENT, BookingChange.Status.PROCESSING,
+    } for change in changes)
+    paid_statuses = {
+        PaymentTransaction.Status.PAID, PaymentTransaction.Status.PARTIALLY_REFUNDED,
+        PaymentTransaction.Status.REFUNDED,
+    }
+    original_paid = max(Decimal("0.00"), payment.amount - payment.refunded_amount) if payment and payment.status in paid_statuses else Decimal("0.00")
+    extension_balances = sum((max(Decimal("0.00"), change.amount - change.refunded_amount) for change in paid_extensions), Decimal("0.00"))
+    refundable_base = original_paid + extension_balances
+    policy = cancellation_policy_payload(booking.pickup_date, timezone.localdate(), refundable_base)
+    can_cancel_or_reschedule = bool(
+        not has_open_change and payment and payment.status in {
+            PaymentTransaction.Status.PAID, PaymentTransaction.Status.PARTIALLY_REFUNDED,
+        }
+        and booking.status == Booking.Status.CONFIRMED and booking.pickup_date >= timezone.localdate()
+    )
+    can_extend = bool(
+        not has_open_change and payment and payment.status in {
+            PaymentTransaction.Status.PAID, PaymentTransaction.Status.PARTIALLY_REFUNDED,
+        }
+        and booking.status in {Booking.Status.CONFIRMED, Booking.Status.HANDED_OVER}
+        and booking.return_date >= timezone.localdate()
+    )
+    # Keep full change history in the response so users can see when refunds
+    # and date changes were requested and which gateway state they reached.
+    change_history = [{
+        "id": change.id, "kind": change.kind, "status": change.status,
+        "from_pickup": change.from_pickup.isoformat() if change.from_pickup else None,
+        "from_return": change.from_return.isoformat() if change.from_return else None,
+        "to_pickup": change.to_pickup.isoformat() if change.to_pickup else None,
+        "to_return": change.to_return.isoformat() if change.to_return else None,
+        "amount": str(change.amount), "refunded_amount": str(change.refunded_amount),
+        "refund_percent": change.refund_percent, "refund_status": change.refund_status,
+    } for change in changes]
     return {
         "id": booking.id,
         "vehicle": vehicle.display_name,
@@ -71,7 +114,14 @@ def _booking_summary(booking):
             "currency": payment.currency if payment else "INR",
             "provider": payment.provider if payment and payment.provider else "Online payment",
             "reference": payment.provider_payment_id if payment and payment.provider_payment_id else "Will appear after payment confirmation",
+            "refunded_amount": str(payment.refunded_amount) if payment else "0.00",
         },
+        "extension_daily_rate": str(booking.daily_rate_snapshot or (booking.commissionable_base / Decimal(max(1, rental_days)))) if (booking.daily_rate_snapshot or booking.commissionable_base is not None) else str(vehicle.daily_rate),
+        "cancellation_policy": policy,
+        "can_cancel": can_cancel_or_reschedule,
+        "can_reschedule": can_cancel_or_reschedule,
+        "can_extend": can_extend,
+        "changes": change_history,
     }
 
 
@@ -247,7 +297,7 @@ def booking_history(request):
     if request.user.role != User.Role.USER:
         return JsonResponse({"ok": False, "message": "Customer access only."}, status=403)
     expire_checkout_holds()
-    bookings = Booking.objects.filter(customer=request.user).select_related("vehicle", "vehicle__shopkeeper", "payment")
+    bookings = Booking.objects.filter(customer=request.user).select_related("vehicle", "vehicle__shopkeeper", "payment").prefetch_related("changes")
     return JsonResponse({
         "ok": True,
         "bookings": [
@@ -262,22 +312,35 @@ def booking_history(request):
 def cancel_customer_booking(request, booking_id):
     if request.user.role != User.Role.USER:
         return JsonResponse({"ok": False, "message": "Customer access only."}, status=403)
-    with transaction.atomic():
-        try:
-            booking = Booking.objects.select_for_update().select_related("vehicle", "vehicle__shopkeeper").get(pk=booking_id, customer=request.user)
-        except Booking.DoesNotExist:
-            return JsonResponse({"ok": False, "message": "Booking not found."}, status=404)
-        payment = PaymentTransaction.objects.select_for_update().filter(booking=booking).first()
-        if booking.status != Booking.Status.PENDING:
-            return JsonResponse({"ok": False, "message": "Only a pending booking can be cancelled here."}, status=409)
-        if payment and payment.status == PaymentTransaction.Status.PAID:
-            return JsonResponse({"ok": False, "message": "This booking has a verified payment. Contact support for the refund process."}, status=409)
-        booking.status = Booking.Status.CANCELLED
-        booking.save(update_fields=["status", "updated_at"])
-        if payment and payment.status == PaymentTransaction.Status.PENDING:
-            payment.status = PaymentTransaction.Status.CANCELLED
-            payment.save(update_fields=["status", "updated_at"])
-    return JsonResponse({"ok": True, "message": "Booking cancelled. No payment was collected."})
+    expire_checkout_holds()
+    try:
+        change, completed = cancel_booking(
+            booking_id=booking_id, actor=request.user, customer_request=True,
+            reason=str(_payload(request).get("reason") or "Customer requested cancellation"),
+        )
+    except LookupError as exc:
+        return JsonResponse({"ok": False, "message": str(exc)}, status=404)
+    except ValueError as exc:
+        return JsonResponse({"ok": False, "message": str(exc)}, status=409)
+    if not completed:
+        return JsonResponse({
+            "ok": False,
+            "message": "Refund could not be confirmed yet. The booking remains active; retry cancellation to safely resume the same refund request.",
+            "refund_status": "PROCESSING",
+        }, status=502)
+    if change.refund_percent:
+        message = f"Booking cancelled. A {change.refund_percent}% refund (₹{change.refunded_amount}) has been initiated to the original payment method."
+    elif PaymentTransaction.objects.filter(booking_id=change.booking_id, status__in=[
+        PaymentTransaction.Status.PAID, PaymentTransaction.Status.PARTIALLY_REFUNDED,
+        PaymentTransaction.Status.REFUNDED,
+    ]).exists():
+        message = "Booking cancelled. No refund applies under the cancellation window."
+    else:
+        message = "Booking cancelled. No payment was collected."
+    return JsonResponse({
+        "ok": True, "message": message, "refund_percent": change.refund_percent,
+        "refund_amount": str(change.refunded_amount), "refund_status": change.refund_status,
+    })
 
 
 @login_required

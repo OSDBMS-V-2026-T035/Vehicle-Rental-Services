@@ -44,6 +44,27 @@ def snapshot_booking_financials(booking):
     return booking
 
 
+def add_paid_extension(booking, amount):
+    """Add a captured extension using the booking's frozen commission rate."""
+    amount = money(amount)
+    if not booking.financial_confirmed_at:
+        snapshot_booking_financials(booking)
+    if booking.commission_reversed_at:
+        raise ValueError("A financially reversed booking cannot be extended.")
+    base = money((booking.commissionable_base or booking.total_amount) + amount)
+    rate = Decimal(booking.commission_rate or 0)
+    commission = money(base * rate / Decimal("100"))
+    booking.total_amount = money(booking.total_amount + amount)
+    booking.commissionable_base = base
+    booking.platform_commission = commission
+    booking.shopkeeper_net_earnings = money(base - commission)
+    booking.save(update_fields=[
+        "return_date", "total_amount", "commissionable_base", "platform_commission",
+        "shopkeeper_net_earnings", "updated_at",
+    ])
+    return booking
+
+
 def reverse_booking_commission(booking):
     """Mark the already frozen commission reversed; never delete history."""
     if booking.financial_confirmed_at and not booking.commission_reversed_at:
