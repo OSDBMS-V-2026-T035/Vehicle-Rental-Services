@@ -43,6 +43,13 @@ async function readApiResponse(response) {
     }
 }
 
+function syncAuthUrl() {
+    const url = new URL(window.location.href);
+    url.searchParams.set('role', page.dataset.role || 'USER');
+    url.searchParams.set('mode', page.dataset.mode || 'login');
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 function setRole(role) {
     page.dataset.role = role;
     document.querySelectorAll('[data-role-button]').forEach((button) => button.classList.toggle('active', button.dataset.roleButton === role));
@@ -62,6 +69,7 @@ function setRole(role) {
     signupLinks.forEach((link) => { link.style.display = admin ? 'none' : ''; });
     if (admin && page.dataset.mode === 'signup') setMode('login');
     document.querySelector('.shopkeeper-fields').classList.toggle('hidden', role !== 'SHOPKEEPER');
+    syncAuthUrl();
 }
 
 function setMode(mode) {
@@ -77,6 +85,7 @@ function setMode(mode) {
     messageBox.className = 'notice';
     messageBox.textContent = '';
     placeCaptcha();
+    syncAuthUrl();
 }
 
 document.querySelectorAll('[data-role-button]').forEach((button) => button.addEventListener('click', () => setRole(button.dataset.roleButton)));
