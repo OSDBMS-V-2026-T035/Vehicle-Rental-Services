@@ -5,6 +5,7 @@ from datetime import date
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Count, Sum
+from django.db.models.deletion import ProtectedError
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_POST
@@ -178,6 +179,8 @@ def user_action(request, user_id):
     user = get_object_or_404(User, pk=user_id)
     if user == request.user:
         return JsonResponse({"ok": False, "message": "You cannot revoke your own admin account."}, status=400)
+    if user.role != User.Role.USER:
+        return JsonResponse({"ok": False, "message": "Only customer accounts can be managed from this action."}, status=400)
     action = _payload(request).get("action", "").lower()
     if action == "edit":
         payload = _payload(request)
@@ -199,11 +202,23 @@ def user_action(request, user_id):
         AuditLog.objects.create(actor=request.user, action="user_edited", entity_type="user", entity_id=user.id)
         return JsonResponse({"ok": True, "message": "Customer details updated."})
     if action == "delete":
+        customer_id, customer_email = user.id, user.email
         with transaction.atomic():
-            user.is_active = False
-            user.save(update_fields=["is_active", "updated_at"])
-            AuditLog.objects.create(actor=request.user, action="user_deactivated", entity_type="user", entity_id=user.id)
-        return JsonResponse({"ok": True, "message": "Customer account deactivated; booking and payment history was preserved."})
+            try:
+                user.delete()
+            except ProtectedError:
+                return JsonResponse({
+                    "ok": False,
+                    "message": "This customer has booking or payment history and cannot be permanently deleted. Revoke the account instead to preserve those records.",
+                }, status=409)
+            AuditLog.objects.create(
+                actor=request.user,
+                action="user_deleted",
+                entity_type="user",
+                entity_id=customer_id,
+                metadata={"email": customer_email},
+            )
+        return JsonResponse({"ok": True, "message": "Customer account permanently deleted."})
     if action not in {"revoke", "restore", "permanent_ban"}:
         return JsonResponse({"ok": False, "message": "Choose revoke, restore, edit, or delete."}, status=400)
     if action == "restore" and user.is_permanently_banned:
