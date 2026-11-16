@@ -143,10 +143,11 @@
   async function scanHandoverQr(overlay, bookingId, stage) {
     const target = overlay.querySelector('[name="code"]'); const messageTarget = overlay.querySelector('[data-qr-message]'); const button = overlay.querySelector('[data-scan-handover-qr]');
     if (!navigator.mediaDevices?.getUserMedia) { messageTarget.textContent = 'This browser cannot access a camera. Enter the customer’s 6-digit code instead.'; messageTarget.classList.add('error'); return; }
-    if (!('BarcodeDetector' in window)) { messageTarget.textContent = 'Camera permission is available, but QR detection is not supported by this browser. Use current Chrome/Edge or enter the customer’s 6-digit code.'; messageTarget.classList.add('error'); return; }
-    let detector; let stream; let preview; let stopped = false; let frame;
-    try { detector = new BarcodeDetector({ formats: ['qr_code'] }); }
-    catch (_) { messageTarget.textContent = 'QR detection could not initialise. Enter the customer’s 6-digit code instead.'; messageTarget.classList.add('error'); return; }
+    let detector = null; const hasJsQrFallback = typeof window.jsQR === 'function'; let stream; let preview; let stopped = false; let frame; let canvas; let context; let lastFallbackScanAt = 0;
+    if ('BarcodeDetector' in window) {
+      try { detector = new BarcodeDetector({ formats: ['qr_code'] }); } catch (_) { /* Use the bundled decoder below. */ }
+    }
+    if (!detector && !hasJsQrFallback) { messageTarget.textContent = 'QR detection could not initialise. Refresh the page and try again, or enter the customer’s 6-digit code.'; messageTarget.classList.add('error'); return; }
     const stop = () => { stopped = true; if (frame) cancelAnimationFrame(frame); stream?.getTracks().forEach(track => track.stop()); preview?.remove(); if (button) button.disabled = false; };
     overlay._stopQrScanner?.(); overlay._stopQrScanner = stop;
     try {
@@ -154,12 +155,22 @@
       messageTarget.classList.remove('error'); messageTarget.textContent = 'Requesting camera permission…';
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
       const video = document.createElement('video'); video.autoplay = true; video.playsInline = true; video.srcObject = stream;
-      preview = document.createElement('div'); preview.className = 'qr-camera-preview'; preview.append(video); overlay.querySelector('#shop-inspection-form').prepend(preview); await video.play(); messageTarget.textContent = 'Camera ready. Point it at the customer QR code…';
+      preview = document.createElement('div'); preview.className = 'qr-camera-preview'; preview.append(video); overlay.querySelector('#shop-inspection-form').prepend(preview); await video.play();
+      if (!detector) { canvas = document.createElement('canvas'); context = canvas.getContext('2d', { willReadFrequently: true }); }
+      messageTarget.textContent = 'Camera ready. Point it at the customer QR code…';
       const scan = async () => {
         if (stopped || !document.body.contains(overlay)) return stop();
         try {
           if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-            const found = await detector.detect(video); const value = found[0]?.rawValue || ''; const match = /^ridehub-handover:v1:(\d+):(PICKUP|RETURN):(\d{6})$/.exec(value);
+            let value = '';
+            if (detector) value = (await detector.detect(video))[0]?.rawValue || '';
+            else if (canvas && context && video.videoWidth && video.videoHeight && performance.now() - lastFallbackScanAt >= 120) {
+              lastFallbackScanAt = performance.now();
+              canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+              context.drawImage(video, 0, 0, canvas.width, canvas.height);
+              value = window.jsQR(context.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, { inversionAttempts: 'dontInvert' })?.data || '';
+            }
+            const match = /^ridehub-handover:v1:(\d+):(PICKUP|RETURN):(\d{6})$/.exec(value);
             if (match && Number(match[1]) === Number(bookingId) && match[2] === stage.toUpperCase()) { target.value = match[3]; stop(); messageTarget.textContent = 'QR verified. Continue with the checklist.'; return; }
             if (value) { messageTarget.textContent = 'This QR does not belong to this booking or handover stage.'; }
           }

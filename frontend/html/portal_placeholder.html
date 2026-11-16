@@ -35,7 +35,8 @@
     <script data-razorpay-checkout src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <script src="{% static 'js/user-portal.js' %}?v=20261113-booking-lifecycle-1"></script>
   {% elif portal_role == 'SHOPKEEPER' %}
-    <script src="{% static 'js/shopkeeper-portal.js' %}?v=20261029-camera-qr-1"></script>
+    <script src="{% static 'js/vendor/jsqr.js' %}?v=1.4.0"></script>
+    <script src="{% static 'js/shopkeeper-portal.js' %}?v=20261116-camera-qr-fallback-1"></script>
   {% elif portal_role == 'ADMIN' %}
     <script src="{% static 'js/admin-portal.js' %}?v=20261113-booking-lifecycle-1"></script>
   {% else %}
