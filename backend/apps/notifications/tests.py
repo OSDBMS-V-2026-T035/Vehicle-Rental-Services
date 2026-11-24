@@ -1,9 +1,10 @@
 from django.test import TestCase
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from apps.accounts.models import User
 from .models import Notification
-from .services import notify_user
+from .services import notify_paid_booking_with_documents, notify_user
 
 
 class NotificationDeduplicationTests(TestCase):
@@ -35,6 +36,21 @@ class NotificationDeduplicationTests(TestCase):
         notify_user(self.user, "Security update", "Your password was changed.")
 
         notice.refresh_from_db()
+        self.assertTrue(notice.email_sent)
+        self.assertEqual(send_email.call_count, 2)
+        self.assertEqual(Notification.objects.filter(user=self.user).count(), 1)
+
+    @patch("apps.notifications.services.send_transactional_email", side_effect=[RuntimeError("temporary outage"), "brevo"])
+    @patch("apps.bookings.documents._document_bytes", return_value=b"pdf")
+    def test_paid_booking_documents_retry_after_email_failure(self, _document_bytes, send_email):
+        payment = SimpleNamespace(
+            customer=self.user,
+            booking=SimpleNamespace(id=17),
+        )
+        notify_paid_booking_with_documents(payment)
+        notify_paid_booking_with_documents(payment)
+
+        notice = Notification.objects.get(user=self.user)
         self.assertTrue(notice.email_sent)
         self.assertEqual(send_email.call_count, 2)
         self.assertEqual(Notification.objects.filter(user=self.user).count(), 1)

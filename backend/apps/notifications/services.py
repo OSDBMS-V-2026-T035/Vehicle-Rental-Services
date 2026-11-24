@@ -38,7 +38,7 @@ def notify_paid_booking_with_documents(payment):
     message = f"Payment for booking {reference} was successful. Your payment receipt and ride confirmation are attached to this email."
     dedupe_key = sha256(f"{title}\n{message}".encode("utf-8")).hexdigest()
     notice, created = Notification.objects.get_or_create(user=payment.customer, dedupe_key=dedupe_key, defaults={"title": title, "message": message})
-    if not created:
+    if not created and notice.email_sent:
         return notice
     attachments = [
         (f"ridehub-payment-receipt-{reference.lower()}.pdf", _document_bytes(booking, "receipt"), "application/pdf"),
