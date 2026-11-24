@@ -8,6 +8,7 @@ from django.db.models import Count, Sum
 from django.db.models.deletion import ProtectedError
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from apps.accounts.models import ShopkeeperProfile, User
@@ -148,7 +149,7 @@ def vehicle_action(request, vehicle_id):
         with transaction.atomic():
             vehicle = get_object_or_404(Vehicle.objects.select_for_update(), pk=vehicle_id)
             reserved = Booking.objects.filter(
-                vehicle=vehicle, return_date__gte=date.today(),
+                vehicle=vehicle, return_date__gte=timezone.localdate(),
             ).filter(active_reservation_filter()).count()
             if quantity < reserved:
                 return JsonResponse({"ok": False, "message": f"This listing has {reserved} active or upcoming reservation(s). Increase quantity or resolve them first."}, status=409)
