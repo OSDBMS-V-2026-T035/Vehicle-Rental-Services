@@ -74,7 +74,7 @@ def _clean_coordinate(value, minimum, maximum, field_name):
         coordinate = Decimal(raw)
     except InvalidOperation as exc:
         raise ValidationError(f"Enter a valid {field_name}.") from exc
-    if coordinate < minimum or coordinate > maximum:
+    if not coordinate.is_finite() or coordinate < minimum or coordinate > maximum:
         raise ValidationError(f"Enter a valid {field_name}.")
     return coordinate
 

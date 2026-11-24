@@ -105,7 +105,7 @@ def shopkeeper_earnings(request, profile):
     totals = realized.aggregate(gross=Sum("commissionable_base"), commission=Sum("platform_commission"), net=Sum("shopkeeper_net_earnings"), count=Sum("id"))
     page = Paginator(rows, 25).get_page(request.GET.get("page", 1))
     def serialize(item):
-        return {"id": item.id, "reference": f"RH-{item.id:06d}", "booking_date": item.created_at.isoformat(), "vehicle": item.vehicle.display_name, "vehicle_image": item.vehicle.image.url if item.vehicle.image else "", "customer": item.customer.get_full_name() or item.customer.email, "pickup_date": item.pickup_date.isoformat(), "return_date": item.return_date.isoformat(), "commissionable_base": str(item.commissionable_base), "commission_rate": str(item.commission_rate), "platform_commission": str(item.platform_commission), "net_earnings": str(item.shopkeeper_net_earnings), "payment_status": item.payment.status, "refunded_amount": str(item.payment.refunded_amount), "booking_status": item.status, "reversed": bool(item.commission_reversed_at)}
+        return {"id": item.id, "reference": f"RH-{item.id:06d}", "booking_date": item.created_at.isoformat(), "vehicle": item.vehicle.display_name, "vehicle_image": f"/api/vehicles/{item.vehicle.id}/image/" if item.vehicle.image or item.vehicle.vehicle_photo_front else "", "customer": item.customer.get_full_name() or item.customer.email, "pickup_date": item.pickup_date.isoformat(), "return_date": item.return_date.isoformat(), "commissionable_base": str(item.commissionable_base), "commission_rate": str(item.commission_rate), "platform_commission": str(item.platform_commission), "net_earnings": str(item.shopkeeper_net_earnings), "payment_status": item.payment.status, "refunded_amount": str(item.payment.refunded_amount), "booking_status": item.status, "reversed": bool(item.commission_reversed_at)}
     return JsonResponse({"ok": True, "summary": {"eligible_rental_fare": str(totals["gross"] or 0), "commission_deducted": str(totals["commission"] or 0), "net_earnings": str(totals["net"] or 0), "eligible_bookings": realized.count(), "pending_payments": Booking.objects.filter(vehicle__shopkeeper=profile, payment__status=PaymentTransaction.Status.PENDING).count(), "note": "Computed earnings are not a settlement or payout."}, "rows": [serialize(item) for item in page.object_list], "pagination": {"page": page.number, "pages": page.paginator.num_pages}})
 
 
@@ -186,7 +186,7 @@ def update_vehicle_rate(request, profile, vehicle_id):
         daily_rate = Decimal(str(_payload(request).get("daily_rate", "")))
     except (InvalidOperation, ValueError):
         return JsonResponse({"ok": False, "message": "Enter a valid daily rate."}, status=400)
-    if daily_rate < 0 or daily_rate >= Decimal("100000000"):
+    if not daily_rate.is_finite() or daily_rate < 0 or daily_rate >= Decimal("100000000"):
         return JsonResponse({"ok": False, "message": "Enter a daily rate within the allowed range."}, status=400)
     try:
         vehicle = Vehicle.objects.get(pk=vehicle_id, shopkeeper=profile, listing_status=Vehicle.ListingStatus.APPROVED)

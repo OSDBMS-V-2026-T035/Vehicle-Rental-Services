@@ -86,7 +86,7 @@ def _booking_summary(booking):
         "id": booking.id,
         "vehicle": vehicle.display_name,
         "vehicle_type": vehicle.vehicle_type,
-        "vehicle_image": vehicle.image.url if vehicle.image else "",
+        "vehicle_image": f"/api/vehicles/{vehicle.id}/image/" if vehicle.image or vehicle.vehicle_photo_front else "",
         "shop": vehicle.shopkeeper.shop_name,
         "shop_address": vehicle.shopkeeper.shop_address,
         "pickup_date": booking.pickup_date.isoformat(),
@@ -94,7 +94,7 @@ def _booking_summary(booking):
         "status": booking.status,
         "total_amount": str(booking.total_amount),
         "fare": {
-            "daily_rate": str(vehicle.daily_rate),
+            "daily_rate": str(booking.daily_rate_snapshot or vehicle.daily_rate),
             "rental_days": rental_days,
             "rental_fare": str(rental_fare),
             "gst_amount": str(gst_amount),

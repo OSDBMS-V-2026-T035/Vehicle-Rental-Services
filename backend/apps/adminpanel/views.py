@@ -1,6 +1,6 @@
 import json
 from decimal import Decimal, InvalidOperation
-from datetime import date
+from datetime import date, timedelta
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
@@ -15,7 +15,7 @@ from apps.accounts.models import ShopkeeperProfile, User
 from apps.notifications.services import notify_user
 from apps.bookings.models import Booking
 from apps.bookings.cancellations import cancel_booking
-from apps.bookings.services import active_reservation_filter
+from apps.bookings.services import active_reservation_count, active_reservation_filter
 from apps.payments.models import PaymentTransaction
 from .models import AuditLog
 from apps.vehicles.models import Vehicle
@@ -96,7 +96,12 @@ def shopkeeper_action(request, profile_id):
             longitude = Decimal(str(payload.get("longitude", ""))) if payload.get("longitude") else None
         except (InvalidOperation, ValueError):
             return JsonResponse({"ok": False, "message": "Enter valid location coordinates."}, status=400)
-        if (latitude is None) != (longitude is None) or (latitude is not None and not (-90 <= latitude <= 90 and -180 <= longitude <= 180)):
+        if (latitude is None) != (longitude is None) or (
+            latitude is not None and (
+                not latitude.is_finite() or not longitude.is_finite()
+                or not (-90 <= latitude <= 90 and -180 <= longitude <= 180)
+            )
+        ):
             return JsonResponse({"ok": False, "message": "Enter a valid current latitude and longitude together."}, status=400)
         profile.shop_name, profile.shop_address, profile.shop_description = name, address, description
         profile.latitude, profile.longitude = latitude, longitude
@@ -288,10 +293,22 @@ def booking_action(request, booking_id):
                 return JsonResponse({"ok": False, "message": "Use valid pickup and return dates."}, status=400)
             if payment and payment.status == PaymentTransaction.Status.PAID:
                 return JsonResponse({"ok": False, "message": "Paid booking dates cannot be edited."}, status=409)
-            if return_date < pickup:
-                return JsonResponse({"ok": False, "message": "Return date must be after pickup."}, status=400)
+            if pickup < timezone.localdate() or return_date < pickup or return_date > pickup + timedelta(days=7):
+                return JsonResponse({"ok": False, "message": "Booking dates must be current and within 7 days."}, status=400)
+            if active_reservation_count(
+                vehicle_id=booking.vehicle_id,
+                pickup_date=pickup,
+                return_date=return_date,
+                exclude_booking_id=booking.id,
+            ) >= booking.vehicle.quantity:
+                return JsonResponse({"ok": False, "message": "The vehicle is already at capacity for those dates."}, status=409)
+            rental_days = max(1, (return_date - pickup).days)
+            booking.total_amount = (booking.daily_rate_snapshot or booking.vehicle.daily_rate) * rental_days
             booking.pickup_date, booking.return_date = pickup, return_date
-            booking.save(update_fields=["pickup_date", "return_date", "updated_at"])
+            booking.save(update_fields=["pickup_date", "return_date", "total_amount", "updated_at"])
+            if payment and payment.status == PaymentTransaction.Status.PENDING:
+                payment.amount = booking.total_amount
+                payment.save(update_fields=["amount", "updated_at"])
             AuditLog.objects.create(actor=request.user, action="admin_booking_edited", entity_type="booking", entity_id=booking.id)
             return JsonResponse({"ok": True, "message": "Booking dates updated."})
         if action == "confirm" and (not payment or payment.status != PaymentTransaction.Status.PAID):

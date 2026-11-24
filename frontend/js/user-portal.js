@@ -191,9 +191,7 @@
     state.selectedVehicle = vehicle;
     let defaults = { full_name: app.name, age: '', gender: '', phone: app.phone, email: app.email };
     try { defaults = { ...defaults, ...(await request('/api/bookings/checkout/defaults/')).defaults }; } catch (_) { /* Checkout stays available with account details. */ }
-    const aadhaarKey = `ridehub-checkout-aadhaar-${app.email}`;
-    const rememberedAadhaarDigits = (sessionStorage.getItem(aadhaarKey) || '').replace(/\D/g, '');
-    const rememberedAadhaar = rememberedAadhaarDigits.length === 12 ? rememberedAadhaarDigits.replace(/(\d{4})(?=\d)/g, '$1 ').trim() : '';
+    const rememberedAadhaar = '';
     const selectedGender = value => defaults.gender === value ? 'selected' : '';
     const rentalDays = Math.max(1, Math.round((new Date(`${state.returnDate}T00:00:00`) - new Date(`${state.pickup}T00:00:00`)) / 86400000));
     const rentalFare = Number(vehicle.daily_rate) * rentalDays;
@@ -327,7 +325,6 @@
     const message = modal.querySelector('#checkout-review-message'); const button = modal.querySelector('[data-confirm-checkout]'); message.textContent = 'Validating details and holding the vehicle…'; message.className = 'checkout-message'; button.disabled = true;
     try {
       const data = await request('/api/bookings/checkout/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      sessionStorage.setItem(`ridehub-checkout-aadhaar-${app.email}`, String(payload.aadhaar || '').replace(/\D/g, ''));
       const deadline = new Date(data.payment_expires_at);
       modal.querySelector('.checkout-modal').innerHTML = `<div class="checkout-success"><span>₹</span><p class="user-eyebrow">10-MINUTE PAYMENT HOLD</p><h2>Vehicle locked for you</h2><p id="hold-copy">Complete payment before the timer ends. On expiry, this booking will fail and the vehicle will be released automatically.</p><div class="success-reference"><small>Booking reference</small><strong>RH-${String(data.booking_id).padStart(6, '0')}</strong><small>Estimated total · ₹${escape(Number(data.total_amount).toLocaleString('en-IN'))}</small><strong id="hold-countdown" aria-live="polite">10:00 remaining</strong></div><p class="payment-test-note" id="payment-test-note"></p><button class="user-primary-action" id="pay-reservation">Pay securely <b>→</b></button></div>`;
       const pay = modal.querySelector('#pay-reservation'); const countdown = modal.querySelector('#hold-countdown');

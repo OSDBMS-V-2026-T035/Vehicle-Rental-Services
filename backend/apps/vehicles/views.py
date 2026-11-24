@@ -1,6 +1,5 @@
 import json
 import math
-import mimetypes
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -16,7 +15,13 @@ from apps.integrations.maps import get_directions_adapter
 from apps.accounts.models import ShopkeeperProfile, User
 from apps.bookings.models import Booking
 from apps.bookings.services import active_reservation_count, active_reservation_counts, active_reservation_filter, expire_checkout_holds
-from .validators import normalize_chassis_number, normalize_policy_number, normalize_registration
+from .validators import (
+    normalize_chassis_number,
+    normalize_policy_number,
+    normalize_registration,
+    validate_uploaded_document,
+    validate_uploaded_image,
+)
 from .matching import rank_vehicle_matches
 from django.db import transaction
 from .models import Vehicle
@@ -34,22 +39,12 @@ def _payload(request):
 
 def _validate_vehicle_image(upload):
     """Validate an uploaded vehicle image before it becomes a model FieldFile."""
-    if not upload:
-        return
-    if not (upload.content_type or "").startswith("image/"):
-        raise ValidationError("Vehicle photo must be an image file.")
-    if upload.size > 5 * 1024 * 1024:
-        raise ValidationError("Vehicle photo must be 5 MB or smaller.")
+    if upload:
+        validate_uploaded_image(upload, "Vehicle photo")
 
 
 def _validate_document(upload, label):
-    if not upload:
-        raise ValidationError(f"Upload the {label}.")
-    if upload.size > 8 * 1024 * 1024:
-        raise ValidationError(f"{label} must be 8 MB or smaller.")
-    content_type = upload.content_type or ""
-    if content_type and not (content_type.startswith("image/") or content_type == "application/pdf"):
-        raise ValidationError(f"{label} must be a PDF or image file.")
+    validate_uploaded_document(upload, label)
 
 
 def _distance_km(lat1, lon1, lat2, lon2):
@@ -134,10 +129,12 @@ def vehicle_image(request, vehicle_id):
         raise Http404("Vehicle photo not found.")
     try:
         image.open("rb")
-        response = FileResponse(image, content_type=mimetypes.guess_type(image.name)[0] or "image/jpeg")
-    except (FileNotFoundError, OSError) as exc:
+        response = FileResponse(image, content_type=validate_uploaded_image(image, "Vehicle photo"))
+    except (FileNotFoundError, OSError, ValidationError) as exc:
         raise Http404("Vehicle photo is unavailable.") from exc
     response["Cache-Control"] = "public, max-age=3600"
+    response["Content-Disposition"] = "inline"
+    response["X-Content-Type-Options"] = "nosniff"
     return response
 
 
@@ -207,6 +204,9 @@ def create_vehicle(request):
         insurance_document = request.FILES.get("insurance_document")
         _validate_document(rc_document, "RC document")
         _validate_document(insurance_document, "insurance document")
+        puc_document = request.FILES.get("puc_document")
+        if puc_document:
+            _validate_document(puc_document, "PUC document")
         registration_number = normalize_registration(request.POST.get("registration_number"))
         rc_number = normalize_registration(request.POST.get("rc_number"), "RC registration number")
         if rc_number != registration_number:
@@ -236,7 +236,7 @@ def create_vehicle(request):
             insurance_document=insurance_document,
             insurance_policy_number=policy_number,
             insurance_expiry_date=request.POST.get("insurance_expiry_date"),
-            puc_document=request.FILES.get("puc_document"),
+            puc_document=puc_document,
             puc_expiry_date=request.POST.get("puc_expiry_date") or None,
             vehicle_photo_front=photos["vehicle_photo_front"],
             vehicle_photo_rear=photos["vehicle_photo_rear"],
@@ -372,8 +372,18 @@ def search_vehicles(request):
     try:
         latitude = float(request.GET.get("latitude", ""))
         longitude = float(request.GET.get("longitude", ""))
+        if not (math.isfinite(latitude) and math.isfinite(longitude)
+                and -90 <= latitude <= 90 and -180 <= longitude <= 180):
+            raise ValueError
     except ValueError:
         latitude = longitude = None
+    try:
+        radius = float(request.GET.get("radius", "15"))
+        if not math.isfinite(radius):
+            raise ValueError
+        radius = min(max(radius, 1), 15)
+    except ValueError:
+        radius = 15
     vehicles = Vehicle.objects.filter(
         listing_status=Vehicle.ListingStatus.APPROVED,
         is_available=True,
@@ -421,10 +431,6 @@ def search_vehicles(request):
             if vehicle.shopkeeper.latitude is None or vehicle.shopkeeper.longitude is None:
                 continue
             distance = _distance_km(latitude, longitude, float(vehicle.shopkeeper.latitude), float(vehicle.shopkeeper.longitude))
-            try:
-                radius = min(max(float(request.GET.get("radius", "15")), 1), 15)
-            except ValueError:
-                radius = 15
             if distance > radius:
                 continue
         reserved = reserved_by_vehicle.get(vehicle.id) if pickup and return_date else None

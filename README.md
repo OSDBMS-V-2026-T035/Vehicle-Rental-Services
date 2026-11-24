@@ -161,5 +161,6 @@ Authentication integration details and free/paid provider notes are documented i
 
 Open `/auth/` through Django to preview the role-aware login and signup screens.
 Use `?role=USER`, `?role=SHOPKEEPER`, or `?role=ADMIN` to open a role, and
-`?mode=signup` for account creation. In `DEBUG=True`, the local OTP fallback
-returns a development code in the UI; configure a real provider before deployment.
+`?mode=signup` for account creation. Email OTP delivery uses Brevo in both local
+and production environments; set `BREVO_API_KEY` and `BREVO_SENDER_EMAIL` before
+testing signup or password reset. OTPs are not displayed in the browser.

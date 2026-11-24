@@ -149,7 +149,7 @@ def admin_commission_configuration(request):
         rate = Decimal(str(json.loads(request.body or "{}").get("commission_rate", "")))
     except (json.JSONDecodeError, InvalidOperation):
         return JsonResponse({"ok": False, "message": "Enter a valid commission percentage."}, status=400)
-    if not Decimal("0") <= rate <= Decimal("100"):
+    if not rate.is_finite() or not Decimal("0") <= rate <= Decimal("100"):
         return JsonResponse({"ok": False, "message": "Commission must be between 0% and 100%."}, status=400)
     with transaction.atomic():
         config = CommissionConfiguration.objects.create(commission_rate=rate, updated_by=request.user)

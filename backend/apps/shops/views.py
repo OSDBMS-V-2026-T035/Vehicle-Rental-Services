@@ -3,6 +3,7 @@ import re
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.db.models import Sum
 from django.http import JsonResponse
 from django.shortcuts import render
@@ -16,6 +17,7 @@ from apps.verification.services import validate_aadhaar_last4, validate_gstin, v
 from apps.bookings.models import Booking
 from apps.payments.models import PaymentTransaction
 from apps.vehicles.models import Vehicle
+from apps.vehicles.validators import validate_uploaded_document
 
 
 def _distance_km(lat1, lon1, lat2, lon2):
@@ -130,8 +132,11 @@ def update_shopkeeper_profile(request):
     upload_fields = ("shop_photo", "address_proof", "pan_document", "aadhaar_document", "gst_certificate")
     for field in upload_fields:
         upload = request.FILES.get(field)
-        if upload and upload.size > 8 * 1024 * 1024:
-            return JsonResponse({"ok": False, "message": f"{field.replace('_', ' ').title()} must be 8 MB or smaller."}, status=400)
+        if upload:
+            try:
+                validate_uploaded_document(upload, field.replace("_", " ").title())
+            except ValidationError as exc:
+                return JsonResponse({"ok": False, "message": exc.messages[0]}, status=400)
     try:
         latitude = Decimal(request.POST.get("latitude", "")) if request.POST.get("latitude") else None
         longitude = Decimal(request.POST.get("longitude", "")) if request.POST.get("longitude") else None
@@ -139,8 +144,24 @@ def update_shopkeeper_profile(request):
         return JsonResponse({"ok": False, "message": "Enter valid map coordinates."}, status=400)
     if (latitude is None) != (longitude is None):
         return JsonResponse({"ok": False, "message": "Latitude and longitude must be provided together."}, status=400)
-    if latitude is not None and not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+    if latitude is not None and (
+        not latitude.is_finite() or not longitude.is_finite()
+        or not (-90 <= latitude <= 90 and -180 <= longitude <= 180)
+    ):
         return JsonResponse({"ok": False, "message": "Map coordinates are outside valid global limits."}, status=400)
+    compliance_values = {
+        "legal_business_name": legal_business_name,
+        "proprietor_name": proprietor_name,
+        "business_type": business_type[:40],
+        "pan_number": pan_number,
+        "gstin": gstin,
+        "aadhaar_last4": aadhaar_last4,
+        "business_registration_number": business_registration_number[:80],
+    }
+    compliance_changed = any(
+        field in request.POST and getattr(profile, field) != value
+        for field, value in compliance_values.items()
+    ) or any(field in request.FILES for field in upload_fields)
     profile.shop_name = name
     profile.shop_address = address
     profile.shop_description = description
@@ -166,6 +187,8 @@ def update_shopkeeper_profile(request):
     profile.profile_completed_at = timezone.now()
     if profile.verification_status == ShopkeeperProfile.VerificationStatus.REJECTED:
         profile.verification_status = ShopkeeperProfile.VerificationStatus.PENDING
+    elif profile.verification_status == ShopkeeperProfile.VerificationStatus.VERIFIED and compliance_changed:
+        profile.verification_status = ShopkeeperProfile.VerificationStatus.PENDING
     profile.save()
     if profile.verification_status == ShopkeeperProfile.VerificationStatus.PENDING:
         message = "Shop profile saved. It is now waiting for the one-time admin account review."
@@ -180,6 +203,8 @@ def search_shops(request):
     latitude, longitude = _coordinates(request)
     try:
         radius = min(max(float(request.GET.get("radius", "15")), 1), 15)
+        if not math.isfinite(radius):
+            raise ValueError
     except ValueError:
         radius = 15
     profiles = ShopkeeperProfile.objects.filter(

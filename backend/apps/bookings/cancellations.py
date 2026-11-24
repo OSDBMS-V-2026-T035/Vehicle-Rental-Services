@@ -49,6 +49,10 @@ def begin_cancellation(*, booking_id, actor, refund_percent=None, reason="", cus
             booking = Booking.objects.select_for_update().select_related("vehicle").get(pk=booking_id)
         except Booking.DoesNotExist as exc:
             raise LookupError("Booking not found.") from exc
+        if customer_request and booking.customer_id != getattr(actor, "id", None):
+            raise LookupError("Booking not found.")
+        if getattr(actor, "role", None) == "SHOPKEEPER" and booking.vehicle.shopkeeper.user_id != getattr(actor, "id", None):
+            raise LookupError("Booking not found.")
         prior = BookingChange.objects.filter(booking=booking, kind=BookingChange.Kind.CANCEL).order_by("-id").first()
         if prior:
             if prior.status in {BookingChange.Status.PROCESSING, BookingChange.Status.FAILED}:

@@ -14,14 +14,14 @@ from .models import Vehicle
 
 class VehicleImageValidationTests(SimpleTestCase):
     def test_accepts_an_image_upload(self):
-        upload = SimpleUploadedFile("vehicle.jpg", b"image-data", content_type="image/jpeg")
+        upload = SimpleUploadedFile("vehicle.jpg", b"\xff\xd8\xffimage-data", content_type="image/jpeg")
 
         _validate_vehicle_image(upload)
 
     def test_rejects_non_image_upload(self):
         upload = SimpleUploadedFile("vehicle.pdf", b"document-data", content_type="application/pdf")
 
-        with self.assertRaisesMessage(ValidationError, "Vehicle photo must be an image file."):
+        with self.assertRaisesMessage(ValidationError, "Vehicle photo must be a valid JPEG, PNG, or WebP image."):
             _validate_vehicle_image(upload)
 
 
@@ -34,7 +34,7 @@ class VehicleCreationApiTests(TestCase):
             role=User.Role.SHOPKEEPER,
             is_email_verified=True,
         )
-        image = SimpleUploadedFile("proof.jpg", b"image-data", content_type="image/jpeg")
+        image = SimpleUploadedFile("proof.jpg", b"\xff\xd8\xffimage-data", content_type="image/jpeg")
         self.profile = ShopkeeperProfile.objects.create(
             user=self.user,
             shop_name="Example Rentals",
@@ -46,16 +46,16 @@ class VehicleCreationApiTests(TestCase):
             pan_number="ABCPD1234F",
             aadhaar_last4="1234",
             shop_photo=image,
-            address_proof=SimpleUploadedFile("address.jpg", b"image-data", content_type="image/jpeg"),
-            pan_document=SimpleUploadedFile("pan.jpg", b"image-data", content_type="image/jpeg"),
-            aadhaar_document=SimpleUploadedFile("aadhaar.jpg", b"image-data", content_type="image/jpeg"),
+            address_proof=SimpleUploadedFile("address.jpg", b"\xff\xd8\xffimage-data", content_type="image/jpeg"),
+            pan_document=SimpleUploadedFile("pan.jpg", b"\xff\xd8\xffimage-data", content_type="image/jpeg"),
+            aadhaar_document=SimpleUploadedFile("aadhaar.jpg", b"\xff\xd8\xffimage-data", content_type="image/jpeg"),
             verification_status=ShopkeeperProfile.VerificationStatus.VERIFIED,
         )
         self.client.force_login(self.user)
 
     def test_verified_shopkeeper_can_submit_a_complete_vehicle(self):
         def image(name):
-            return SimpleUploadedFile(name, b"image-data", content_type="image/jpeg")
+            return SimpleUploadedFile(name, b"\xff\xd8\xffimage-data", content_type="image/jpeg")
 
         response = self.client.post("/api/shopkeeper/vehicles/create/", {
             "vehicle_type": "car",
