@@ -13,6 +13,12 @@
   const labels = { overview: 'Overview', rides: 'Find a ride', shops: 'Nearby shops', bookings: 'My bookings', profile: 'Profile & security', checkout: 'Secure checkout' };
   const icons = { overview: '◉', rides: '⌕', shops: '⌖', bookings: '▣', profile: '◌', checkout: '₹' };
   const escape = value => String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
+  const normalizeAadhaar = value => String(value ?? '').replace(/\D/g, '');
+  const isAadhaarFormatValid = value => {
+    const digits = normalizeAadhaar(value);
+    return /^[0-9]{12}$/.test(digits) && !/([0-9])\1{5,}/.test(digits);
+  };
+  const aadhaarValidationMessage = 'Enter exactly 12 digits. A digit repeated 6 or more times consecutively is not accepted.';
   const csrf = () => app.csrf || document.cookie.split('; ').find(row => row.startsWith('csrftoken='))?.split('=')[1] || '';
   const showToast = message => { toast.textContent = message; toast.classList.add('show'); clearTimeout(window.userPortalToast); window.userPortalToast = setTimeout(() => toast.classList.remove('show'), 3600); };
   const request = async (url, options = {}) => {
@@ -195,7 +201,14 @@
     modal.className = dedicated ? 'checkout-page-shell' : 'checkout-overlay';
     modal.innerHTML = `<section class="checkout-modal${dedicated ? ' checkout-page-card' : ''}" role="dialog" aria-modal="${dedicated ? 'false' : 'true'}" aria-labelledby="checkout-title">${dedicated ? '<a class="user-secondary-action checkout-back" href="/user-portal/rides/">← Back to rides</a>' : '<button class="modal-close" id="close-checkout" aria-label="Close">×</button>'}<p class="user-eyebrow">SECURE RESERVATION</p><h2 id="checkout-title">Reserve your RideHub vehicle</h2><div class="checkout-vehicle-card"><img src="${escape(vehicle.image_url)}" alt="${escape(vehicle.name)}"><div><strong>${escape(vehicle.name)}</strong><small>${escape(vehicle.type)} · ${escape(vehicle.fuel_type || 'Fuel details unavailable')} · ${escape(vehicle.seating_capacity)} seats</small><small>${escape(vehicle.shop)} · ${escape(vehicle.address || 'Verified rental location')}</small></div></div><div class="checkout-date-grid"><span><small>Pickup</small><b>${escape(state.pickup)}</b></span><span><small>Return</small><b>${escape(state.returnDate)}</b></span><span><small>Duration</small><b>${rentalDays} day${rentalDays === 1 ? '' : 's'}</b></span></div><div class="checkout-summary checkout-fare-summary"><span>Rental fare (${rentalDays} × ₹${escape(Number(vehicle.daily_rate).toLocaleString('en-IN'))})<small>Tax-exclusive; RideHub has no configured GST charge.</small></span><strong>₹${escape(rentalFare.toLocaleString('en-IN'))}</strong></div><form id="checkout-form" class="checkout-form"><h3>Renter details</h3><label>Full name<input name="full_name" value="${escape(defaults.full_name || app.name)}" required></label><div class="checkout-two"><label>Age<input name="age" type="number" min="18" max="90" placeholder="18+" value="${escape(defaults.age || '')}" required></label><label>Gender<select name="gender" required><option value="">Select</option><option value="male" ${selectedGender('male')}>Male</option><option value="female" ${selectedGender('female')}>Female</option><option value="non_binary" ${selectedGender('non_binary')}>Non-binary</option><option value="prefer_not_to_say" ${selectedGender('prefer_not_to_say')}>Prefer not to say</option></select></label></div><label>Mobile number<input name="phone" inputmode="numeric" value="${escape(defaults.phone || app.phone)}" maxlength="10" required></label><label>Verified email<input name="email" type="email" value="${escape(defaults.email || app.email)}" readonly><small class="verified-note">✓ Email verified on your RideHub account</small></label><label>Aadhaar number<input name="aadhaar" inputmode="numeric" maxlength="14" value="${escape(rememberedAadhaar)}" placeholder="12-digit Aadhaar number" required><small>Enter exactly 12 digits. Spaces are added automatically; the complete number is never stored by RideHub.</small></label><p id="checkout-message" class="checkout-message" role="status"></p><button class="user-primary-action" type="submit">Continue to secure payment <b>→</b></button></form></section>`;
     if (!dedicated) document.body.appendChild(modal);
-    const aadhaarInput = modal.querySelector('[name="aadhaar"]'); aadhaarInput.addEventListener('input', () => { const digits = aadhaarInput.value.replace(/\D/g, '').slice(0, 12); aadhaarInput.value = digits.replace(/(\d{4})(?=\d)/g, '$1 ').trim(); });
+    const aadhaarInput = modal.querySelector('[name="aadhaar"]');
+    const updateAadhaarValidity = () => {
+      const digits = normalizeAadhaar(aadhaarInput.value).slice(0, 12);
+      aadhaarInput.value = digits.replace(/(\d{4})(?=\d)/g, '$1 ').trim();
+      aadhaarInput.setCustomValidity(digits && !isAadhaarFormatValid(digits) ? aadhaarValidationMessage : '');
+    };
+    aadhaarInput.addEventListener('input', updateAadhaarValidity);
+    updateAadhaarValidity();
     if (!dedicated) { modal.querySelector('#close-checkout').addEventListener('click', () => modal.remove()); modal.addEventListener('click', event => { if (event.target === modal) modal.remove(); }); }
     modal.querySelector('#checkout-form').addEventListener('submit', event => {
       event.preventDefault();
