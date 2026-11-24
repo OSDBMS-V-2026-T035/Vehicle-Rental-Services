@@ -105,7 +105,10 @@ if (-not (Test-Path $venvPython)) {
 }
 
 Write-Step "Checking project dependencies"
-& $venvPython -c "import django, MySQLdb" 2>$null
+# Check every runtime package used by the app, not only the database pair.
+# Otherwise a partially populated venv can pass this check and fail later
+# when QR handover images, PDFs, payments, or production static files load.
+& $venvPython -c "import django, MySQLdb, qrcode, reportlab, razorpay, whitenoise" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Step "Installing project dependencies"
     & $venvPython -m pip install --disable-pip-version-check -r requirements.txt
