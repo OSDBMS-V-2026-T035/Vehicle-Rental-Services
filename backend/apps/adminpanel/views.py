@@ -14,6 +14,7 @@ from apps.accounts.models import ShopkeeperProfile, User
 from apps.notifications.services import notify_user
 from apps.bookings.models import Booking
 from apps.bookings.cancellations import cancel_booking
+from apps.bookings.services import active_reservation_filter
 from apps.payments.models import PaymentTransaction
 from .models import AuditLog
 from apps.vehicles.models import Vehicle
@@ -134,23 +135,30 @@ def shopkeeper_action(request, profile_id):
 @_admin_only
 @require_POST
 def vehicle_action(request, vehicle_id):
-    vehicle = get_object_or_404(Vehicle, pk=vehicle_id)
     action = _payload(request).get("action", "").lower()
     if action == "edit":
         payload = _payload(request)
         try:
-            rate = float(payload.get("daily_rate"))
+            rate = Decimal(str(payload.get("daily_rate")))
             quantity = int(payload.get("quantity"))
-        except (TypeError, ValueError):
+        except (InvalidOperation, TypeError, ValueError):
             return JsonResponse({"ok": False, "message": "Enter a valid rate and quantity."}, status=400)
-        if rate < 0 or not 1 <= quantity <= 999:
+        if not rate.is_finite() or rate < 0 or rate >= Decimal("100000000") or not 1 <= quantity <= 999:
             return JsonResponse({"ok": False, "message": "Rate must be positive and quantity must be 1–999."}, status=400)
-        vehicle.daily_rate = rate
-        vehicle.quantity = quantity
-        vehicle.available_quantity = min(vehicle.available_quantity, quantity)
-        vehicle.save(update_fields=["daily_rate", "quantity", "available_quantity", "updated_at"])
+        with transaction.atomic():
+            vehicle = get_object_or_404(Vehicle.objects.select_for_update(), pk=vehicle_id)
+            reserved = Booking.objects.filter(
+                vehicle=vehicle, return_date__gte=date.today(),
+            ).filter(active_reservation_filter()).count()
+            if quantity < reserved:
+                return JsonResponse({"ok": False, "message": f"This listing has {reserved} active or upcoming reservation(s). Increase quantity or resolve them first."}, status=409)
+            vehicle.daily_rate = rate
+            vehicle.quantity = quantity
+            vehicle.available_quantity = max(0, quantity - reserved)
+            vehicle.save(update_fields=["daily_rate", "quantity", "available_quantity", "updated_at"])
         AuditLog.objects.create(actor=request.user, action="vehicle_edited", entity_type="vehicle", entity_id=vehicle.id)
         return JsonResponse({"ok": True, "message": "Vehicle rate and inventory updated."})
+    vehicle = get_object_or_404(Vehicle, pk=vehicle_id)
     if action == "delete":
         with transaction.atomic():
             vehicle.is_available = False

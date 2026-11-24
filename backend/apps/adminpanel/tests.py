@@ -1,10 +1,13 @@
 import json
+from datetime import date, timedelta
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.models import ShopkeeperProfile, User
+from apps.bookings.models import Booking
+from apps.vehicles.models import Vehicle
 
 
 class CustomerDeletionTests(TestCase):
@@ -82,4 +85,84 @@ class ProtectedAdminDocumentTests(TestCase):
         response = self.client.get(reverse("admin-document", args=["shopkeepers", self.profile.id, "aadhaar_document"]))
 
         self.assertEqual(response.status_code, 403)
+
+
+class AdminVehicleEditTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="inventory-admin@example.com",
+            phone_number="9876543130",
+            password="StrongPassword1!",
+            role=User.Role.ADMIN,
+            is_staff=True,
+            is_email_verified=True,
+        )
+        owner = User.objects.create_user(
+            email="inventory-shop@example.com",
+            phone_number="9876543131",
+            password="StrongPassword1!",
+            role=User.Role.SHOPKEEPER,
+            is_email_verified=True,
+        )
+        shop = ShopkeeperProfile.objects.create(
+            user=owner,
+            shop_name="Inventory Rentals",
+            shop_address="Dehradun, Uttarakhand",
+            verification_status=ShopkeeperProfile.VerificationStatus.VERIFIED,
+        )
+        self.customer = User.objects.create_user(
+            email="inventory-customer@example.com",
+            phone_number="9876543132",
+            password="StrongPassword1!",
+            is_email_verified=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            shopkeeper=shop,
+            vehicle_type=Vehicle.VehicleType.CAR,
+            brand="Inventory",
+            model_name="One",
+            registration_number="UK07IJ1234",
+            manufacturing_year=2024,
+            daily_rate="1000.00",
+            quantity=3,
+            available_quantity=2,
+            listing_status=Vehicle.ListingStatus.APPROVED,
+        )
+        Booking.objects.create(
+            customer=self.customer,
+            vehicle=self.vehicle,
+            pickup_date=date.today() + timedelta(days=1),
+            return_date=date.today() + timedelta(days=2),
+            total_amount="1000.00",
+            status=Booking.Status.CONFIRMED,
+        )
+        Booking.objects.create(
+            customer=self.customer,
+            vehicle=self.vehicle,
+            pickup_date=date.today() + timedelta(days=1),
+            return_date=date.today() + timedelta(days=2),
+            total_amount="1000.00",
+            status=Booking.Status.CONFIRMED,
+        )
+        self.client.force_login(self.admin)
+
+    def test_admin_cannot_reduce_inventory_below_active_reservations(self):
+        response = self.client.post(
+            reverse("admin-vehicle-action", args=[self.vehicle.id]),
+            data=json.dumps({"action": "edit", "daily_rate": "1250.10", "quantity": 1}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 409)
+
+    def test_admin_recalculates_available_inventory_and_preserves_decimal_rate(self):
+        response = self.client.post(
+            reverse("admin-vehicle-action", args=[self.vehicle.id]),
+            data=json.dumps({"action": "edit", "daily_rate": "1250.10", "quantity": 2}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.vehicle.refresh_from_db()
+        self.assertEqual(str(self.vehicle.daily_rate), "1250.10")
+        self.assertEqual(self.vehicle.quantity, 2)
+        self.assertEqual(self.vehicle.available_quantity, 0)
 
