@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-
+ 
 echo "[RideHub] Running Django checks"
 python backend/manage.py check
 echo "[RideHub] Applying database migrations"
