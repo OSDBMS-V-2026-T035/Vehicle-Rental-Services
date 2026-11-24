@@ -14,7 +14,7 @@ from .documents import _document_bytes
 from .models import Booking, BookingChange
 from .policy import cancellation_refund_percent, refund_amount
 from .handover import CHECKLIST_FIELDS, validate_inspection_payload
-from .services import active_reservation_statuses, create_checkout_booking
+from .services import active_reservation_statuses, create_checkout_booking, expire_checkout_holds
 
 
 class BookingCancellationPolicyTests(SimpleTestCase):
@@ -73,6 +73,50 @@ class ActiveReservationStatusTests(SimpleTestCase):
     def test_completed_and_cancelled_bookings_do_not_consume_inventory(self):
         self.assertNotIn(Booking.Status.COMPLETED, active_reservation_statuses())
         self.assertNotIn(Booking.Status.CANCELLED, active_reservation_statuses())
+
+
+class CheckoutHoldExpiryTests(TestCase):
+    def setUp(self):
+        from apps.accounts.models import ShopkeeperProfile, User
+        from apps.vehicles.models import Vehicle
+
+        owner = User.objects.create_user(
+            email="expiry-shop@example.com", phone_number="9876543190", password="safe-test-pass",
+            role=User.Role.SHOPKEEPER, is_email_verified=True,
+        )
+        shop = ShopkeeperProfile.objects.create(
+            user=owner, shop_name="Expiry Rentals", shop_address="Dehradun",
+            verification_status=ShopkeeperProfile.VerificationStatus.VERIFIED,
+        )
+        self.customer = User.objects.create_user(
+            email="expiry-renter@example.com", phone_number="9876543191", password="safe-test-pass",
+            is_email_verified=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            shopkeeper=shop, vehicle_type=Vehicle.VehicleType.CAR, brand="Test",
+            model_name="Expiry", registration_number="UK07EF1234", manufacturing_year=2024,
+            daily_rate="1000.00", listing_status=Vehicle.ListingStatus.APPROVED,
+        )
+
+    def test_expired_checkout_hold_cancels_payment_and_updates_timestamps(self):
+        now = timezone.now()
+        booking = Booking.objects.create(
+            customer=self.customer, vehicle=self.vehicle,
+            pickup_date=date.today() + timedelta(days=1),
+            return_date=date.today() + timedelta(days=2), total_amount="1000.00",
+            payment_expires_at=now - timedelta(minutes=1), status=Booking.Status.PENDING,
+        )
+        payment = PaymentTransaction.objects.create(
+            booking=booking, customer=self.customer, amount="1000.00",
+        )
+
+        self.assertEqual(expire_checkout_holds(now=now), 1)
+        booking.refresh_from_db()
+        payment.refresh_from_db()
+        self.assertEqual(booking.status, Booking.Status.CANCELLED)
+        self.assertEqual(payment.status, PaymentTransaction.Status.CANCELLED)
+        self.assertEqual(booking.updated_at, now)
+        self.assertEqual(payment.updated_at, now)
 
 
 class CheckoutRetryTests(SimpleTestCase):

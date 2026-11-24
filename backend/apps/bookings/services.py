@@ -48,12 +48,12 @@ def expire_checkout_holds(now=None):
         if expired:
             booking_ids = [booking.id for booking in expired]
             Booking.objects.filter(id__in=booking_ids, status=Booking.Status.PENDING).update(
-                status=Booking.Status.CANCELLED,
+                status=Booking.Status.CANCELLED, updated_at=now,
             )
             PaymentTransaction.objects.select_for_update().filter(
                 booking_id__in=booking_ids,
                 status=PaymentTransaction.Status.PENDING,
-            ).update(status=PaymentTransaction.Status.CANCELLED)
+            ).update(status=PaymentTransaction.Status.CANCELLED, updated_at=now)
         expired_changes = BookingChange.objects.select_for_update().filter(
             kind=BookingChange.Kind.EXTEND,
             status=BookingChange.Status.PENDING_PAYMENT,

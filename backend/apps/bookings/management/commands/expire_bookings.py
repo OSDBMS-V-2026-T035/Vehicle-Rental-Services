@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from apps.adminpanel.models import AuditLog
 from apps.bookings.models import Booking
+from apps.bookings.services import expire_checkout_holds
 from apps.payments.models import PaymentTransaction
 
 
@@ -17,6 +18,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         cutoff = timezone.now() - timedelta(hours=max(1, options["older_than_hours"]))
+        checkout_expired = expire_checkout_holds()
         with transaction.atomic():
             stale = list(Booking.objects.filter(status=Booking.Status.PENDING, created_at__lt=cutoff).values_list("id", flat=True))
             updated = Booking.objects.filter(id__in=stale).update(status=Booking.Status.CANCELLED, updated_at=timezone.now())
@@ -26,4 +28,6 @@ class Command(BaseCommand):
             ).update(status=PaymentTransaction.Status.CANCELLED, updated_at=timezone.now())
             if updated:
                 AuditLog.objects.create(action="booking_expiry_job", entity_type="booking_batch", metadata={"count": updated, "cutoff": cutoff.isoformat()})
-        self.stdout.write(self.style.SUCCESS(f"Expired {updated} pending booking(s)."))
+        self.stdout.write(self.style.SUCCESS(
+            f"Expired {updated} stale booking(s) and {checkout_expired} checkout hold(s)."
+        ))
