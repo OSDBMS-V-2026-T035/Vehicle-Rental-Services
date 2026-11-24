@@ -1,4 +1,5 @@
 from django.test import TestCase
+from unittest.mock import patch
 
 from apps.accounts.models import User
 from .models import Notification
@@ -24,3 +25,16 @@ class NotificationDeduplicationTests(TestCase):
         notify_user(self.user, "Payment successful", "Booking #18 was paid.", email=False)
 
         self.assertEqual(Notification.objects.filter(user=self.user).count(), 2)
+
+    @patch("apps.notifications.services.send_transactional_email", side_effect=[RuntimeError("temporary outage"), "brevo"])
+    def test_failed_email_delivery_is_retried_without_duplicate_notification(self, send_email):
+        notify_user(self.user, "Security update", "Your password was changed.")
+        notice = Notification.objects.get(user=self.user)
+        self.assertFalse(notice.email_sent)
+
+        notify_user(self.user, "Security update", "Your password was changed.")
+
+        notice.refresh_from_db()
+        self.assertTrue(notice.email_sent)
+        self.assertEqual(send_email.call_count, 2)
+        self.assertEqual(Notification.objects.filter(user=self.user).count(), 1)

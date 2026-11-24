@@ -16,7 +16,7 @@ def notify_user(user, title, message, *, email=True):
         dedupe_key=dedupe_key,
         defaults={"title": title, "message": message},
     )
-    if not created:
+    if not created and (not email or notice.email_sent):
         return notice
     if email:
         try:
