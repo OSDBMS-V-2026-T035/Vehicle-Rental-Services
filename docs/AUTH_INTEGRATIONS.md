@@ -1,5 +1,5 @@
 # Authentication and location integrations
-
+ 
 Email OTP delivery uses Brevo. Signup and password reset do not fall back to a
 console or on-screen code, so an account is never marked as email-verified unless
 Brevo accepts the message.
