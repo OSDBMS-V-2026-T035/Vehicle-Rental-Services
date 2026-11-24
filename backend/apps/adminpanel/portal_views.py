@@ -1,6 +1,7 @@
 """Read APIs for the protected administrator portal."""
 
 import json
+import mimetypes
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.decorators import login_required
@@ -8,7 +9,7 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, F, Q, Sum
 from django.db.models.functions import Coalesce
-from django.http import JsonResponse
+from django.http import FileResponse, Http404, JsonResponse
 from django.views.decorators.http import require_GET
 
 from apps.accounts.models import ShopkeeperProfile, User
@@ -63,6 +64,46 @@ def admin_review_queues(request):
         profile = getattr(item, "shopkeeper_profile", None)
         accounts.append({"id": item.id, "name": item.get_full_name() or item.email, "email": item.email, "phone": item.phone_number, "role": item.get_role_display(), "active": item.is_active, "permanently_banned": item.is_permanently_banned, "action_url": f"/api/admin/shopkeepers/{profile.id}/action/" if is_shopkeeper and profile else f"/api/admin/users/{item.id}/action/", "created_at": item.created_at.isoformat()})
     return JsonResponse({"ok": True, "shopkeepers": [{"id": item.id, "shop_name": item.shop_name, "address": item.shop_address, "email": item.user.email, "phone": item.user.phone_number, "vehicle_count": item.vehicle_count, "created_at": item.created_at.isoformat()} for item in shops], "vehicles": [{"id": item.id, "name": item.display_name, "registration_number": item.registration_number, "shop": item.shopkeeper.shop_name, "daily_rate": str(item.daily_rate), "created_at": item.created_at.isoformat()} for item in vehicles], "users": accounts})
+
+
+def _admin_document_url(resource, object_id, field):
+    return f"/api/admin/documents/{resource}/{object_id}/{field}/"
+
+
+@_admin_only
+@require_GET
+def admin_document(request, resource, object_id, field):
+    """Serve uploaded review files only after an authenticated admin check."""
+    allowed_fields = {
+        "shopkeepers": {
+            "shop_photo", "address_proof", "pan_document", "aadhaar_document", "gst_certificate",
+        },
+        "vehicles": {
+            "image", "vehicle_photo_front", "vehicle_photo_rear", "vehicle_photo_left",
+            "vehicle_photo_right", "rc_document", "insurance_document", "puc_document",
+        },
+    }
+    model = {"shopkeepers": ShopkeeperProfile, "vehicles": Vehicle}.get(resource)
+    if model is None or field not in allowed_fields[resource]:
+        raise Http404("Document not found.")
+    try:
+        record = model.objects.get(pk=object_id)
+    except model.DoesNotExist as exc:
+        raise Http404("Document not found.") from exc
+    document = getattr(record, field, None)
+    if not document:
+        raise Http404("Document not found.")
+    try:
+        document.open("rb")
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        raise Http404("Document is unavailable.") from exc
+    response = FileResponse(
+        document,
+        content_type=mimetypes.guess_type(document.name)[0] or "application/octet-stream",
+    )
+    response["Cache-Control"] = "private, no-store, max-age=0"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @_admin_only
@@ -153,11 +194,11 @@ def admin_catalog(request, resource):
             "business_type": row.business_type, "gstin": row.gstin, "pan_number": row.pan_number,
             "aadhaar_last4": row.aadhaar_last4, "business_registration_number": row.business_registration_number,
             "compliance_complete": row.is_compliance_complete,
-            "shop_photo_url": row.shop_photo.url if row.shop_photo else "",
-            "address_proof_url": row.address_proof.url if row.address_proof else "",
-            "pan_document_url": row.pan_document.url if row.pan_document else "",
-            "aadhaar_document_url": row.aadhaar_document.url if row.aadhaar_document else "",
-            "gst_certificate_url": row.gst_certificate.url if row.gst_certificate else "",
+            "shop_photo_url": _admin_document_url("shopkeepers", row.id, "shop_photo") if row.shop_photo else "",
+            "address_proof_url": _admin_document_url("shopkeepers", row.id, "address_proof") if row.address_proof else "",
+            "pan_document_url": _admin_document_url("shopkeepers", row.id, "pan_document") if row.pan_document else "",
+            "aadhaar_document_url": _admin_document_url("shopkeepers", row.id, "aadhaar_document") if row.aadhaar_document else "",
+            "gst_certificate_url": _admin_document_url("shopkeepers", row.id, "gst_certificate") if row.gst_certificate else "",
             "status": row.verification_status, "vehicle_count": row.vehicle_count,
             "active": row.user.is_active, "action_url": f"/api/admin/shopkeepers/{row.id}/action/",
         } for row in rows]})
@@ -169,12 +210,12 @@ def admin_catalog(request, resource):
             "available": row.is_available, "status": row.listing_status, "type": row.get_vehicle_type_display(),
             "brand": row.brand, "model": row.model_name, "year": row.manufacturing_year,
             "fuel": row.fuel_type, "seats": row.seating_capacity, "description": row.description,
-            "image_url": row.image.url if row.image else "",
+            "image_url": _admin_document_url("vehicles", row.id, "image") if row.image else (_admin_document_url("vehicles", row.id, "vehicle_photo_front") if row.vehicle_photo_front else ""),
             "rc_number": row.rc_number, "insurance_policy_number": row.insurance_policy_number,
             "insurance_expiry_date": row.insurance_expiry_date.isoformat() if row.insurance_expiry_date else "",
-            "rc_document_url": row.rc_document.url if row.rc_document else "",
-            "insurance_document_url": row.insurance_document.url if row.insurance_document else "",
-            "vehicle_photos": [photo.url for photo in (row.vehicle_photo_front, row.vehicle_photo_rear, row.vehicle_photo_left, row.vehicle_photo_right) if photo],
+            "rc_document_url": _admin_document_url("vehicles", row.id, "rc_document") if row.rc_document else "",
+            "insurance_document_url": _admin_document_url("vehicles", row.id, "insurance_document") if row.insurance_document else "",
+            "vehicle_photos": [_admin_document_url("vehicles", row.id, field) for field in ("vehicle_photo_front", "vehicle_photo_rear", "vehicle_photo_left", "vehicle_photo_right") if getattr(row, field)],
             "action_url": f"/api/admin/vehicles/{row.id}/action/",
         } for row in rows]})
     if resource == "bookings":

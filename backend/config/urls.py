@@ -8,7 +8,7 @@ from django.views.generic import TemplateView
 
 from apps.accounts.views import auth_page, booking_checkout_page, captcha_view, customer_profile_view, login_view, logout_view, password_reset_confirm_view, password_reset_otp_view, portal_view, send_otp_view, signup_view, update_customer_profile_view, verify_signup_otp_view
 from apps.adminpanel.views import booking_action, shopkeeper_action, user_action, vehicle_action
-from apps.adminpanel.portal_views import admin_audit, admin_catalog, admin_commission_configuration, admin_earnings, admin_revenue, admin_review_queues, admin_summary
+from apps.adminpanel.portal_views import admin_audit, admin_catalog, admin_commission_configuration, admin_document, admin_earnings, admin_revenue, admin_review_queues, admin_summary
 from apps.bookings.views import booking_history, cancel_customer_booking, checkout_defaults, create_booking, create_checkout_booking_view, request_handover_code, shopkeeper_vehicle_availability
 from apps.bookings.lifecycle import reschedule_customer_booking
 from apps.bookings.documents import download_booking_document
@@ -43,6 +43,7 @@ urlpatterns = [
     path("api/admin/revenue/", admin_revenue, name="admin-revenue"),
     path("api/admin/commission/", admin_commission_configuration, name="admin-commission"),
     path("api/admin/catalog/<str:resource>/", admin_catalog, name="admin-catalog"),
+    path("api/admin/documents/<str:resource>/<int:object_id>/<str:field>/", admin_document, name="admin-document"),
     path("api/admin/vehicles/<int:vehicle_id>/action/", vehicle_action, name="admin-vehicle-action"),
     path("api/admin/users/<int:user_id>/action/", user_action, name="admin-user-action"),
     path("api/admin/bookings/<int:booking_id>/action/", booking_action, name="admin-booking-action"),
@@ -91,7 +92,6 @@ urlpatterns = [
 
 if settings.DEBUG:
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 
 
