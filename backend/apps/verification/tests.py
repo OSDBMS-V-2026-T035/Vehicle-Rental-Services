@@ -19,8 +19,17 @@ class IndianIdentityFormatTests(SimpleTestCase):
         self.assertFalse(validate_aadhaar_last4("12 34"))
         self.assertFalse(validate_aadhaar_last4("１２３４"))
 
-    def test_full_aadhaar_requires_valid_verhoeff_checksum(self):
-        self.assertTrue(validate_aadhaar("2363 0176 6987")[0])
-        self.assertFalse(validate_aadhaar("2363 0176 6988")[0])
+    def test_full_aadhaar_requires_exactly_twelve_digits(self):
+        self.assertTrue(validate_aadhaar("1234 5678 9012")[0])
+        self.assertTrue(validate_aadhaar("012345678901")[0])
+        self.assertFalse(validate_aadhaar("12345678901")[0])
+        self.assertFalse(validate_aadhaar("1234567890123")[0])
         self.assertFalse(validate_aadhaar("2363x0176x6987")[0])
+
+    def test_full_aadhaar_rejects_six_or_more_consecutive_repeated_digits(self):
+        self.assertFalse(validate_aadhaar("999999999999")[0])
+        self.assertFalse(validate_aadhaar("888888999999")[0])
+        self.assertFalse(validate_aadhaar("444444455555")[0])
+        self.assertFalse(validate_aadhaar("123450000001")[0])
+        self.assertTrue(validate_aadhaar("123455678901")[0])
 
