@@ -204,7 +204,7 @@ def create_checkout_booking_view(request):
         return JsonResponse({"ok": False, "message": "Use the verified email on your RideHub account."}, status=400)
     valid_aadhaar, identity = validate_aadhaar(payload.get("aadhaar"))
     if not valid_aadhaar:
-        return JsonResponse({"ok": False, "message": "Enter a valid 12-digit Aadhaar number with a valid checksum."}, status=400)
+        return JsonResponse({"ok": False, "message": "Enter exactly 12 digits. A digit repeated 6 or more times consecutively is not accepted."}, status=400)
     try:
         booking = create_checkout_booking(
             customer=request.user,

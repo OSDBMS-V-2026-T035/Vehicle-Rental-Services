@@ -9,7 +9,7 @@ class BookingVerification(models.Model):
         PENDING_REVIEW = "PENDING_REVIEW", "Pending review"
 
     class Method(models.TextChoices):
-        VERHOEFF = "VERHOEFF", "Aadhaar checksum"
+        FORMAT = "FORMAT", "Aadhaar format"
         MANUAL = "MANUAL", "Manual review"
 
     booking = models.OneToOneField(
@@ -19,7 +19,7 @@ class BookingVerification(models.Model):
     document_hash = models.CharField(max_length=128)
     document_last4 = models.CharField(max_length=4)
     status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING_REVIEW)
-    method = models.CharField(max_length=16, choices=Method.choices, default=Method.VERHOEFF)
+    method = models.CharField(max_length=16, choices=Method.choices, default=Method.FORMAT)
     verified_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

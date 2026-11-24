@@ -200,7 +200,7 @@ def _create_checkout_booking(
             document_hash=aadhaar_hash,
             document_last4=aadhaar_last4,
             status=BookingVerification.Status.VERIFIED_FORMAT,
-            method=BookingVerification.Method.VERHOEFF,
+            method=BookingVerification.Method.FORMAT,
             verified_at=timezone.now(),
         )
     return booking
